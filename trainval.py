@@ -68,13 +68,13 @@ def trainval(exp_dict, savedir, args):
         model.set_state_dict(state_dict)
 
     (
-        model.model,
+        model.encoder,
         model.similarities_coef,
         model.projection_head,
         model.opt,
         train_loader,
     ) = model.accelerator.prepare(
-        model.model,
+        model.encoder,
         model.similarities_coef,
         model.projection_head,
         model.opt,
