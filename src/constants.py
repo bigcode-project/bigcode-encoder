@@ -1,0 +1,12 @@
+# Various constants.
+
+PADDING_ID_FOR_LABELS = -100  # used to convert paddin ids to ignored labels.
+
+# Special tokens
+MASK_TOKEN = "<mask>"
+SEPARATOR_TOKEN = "<sep>"
+PAD_TOKEN = "<pad>"
+CLS_TOKEN = "<cls>"
+
+# Results notebook name.
+RESULTS_FNAME = "results.ipynb"
