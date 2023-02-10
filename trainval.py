@@ -33,7 +33,7 @@ def trainval(exp_dict, savedir, args):
         num_workers=exp_dict["n_workers"],
         collate_fn=datasets_loader.Collator(
             tokenizer_path=exp_dict["tokenizer_path"],
-            maximum_length=exp_dict["maximum_length"],
+            maximum_length=exp_dict["maximum_input_length"],
             mlm_masking_probability=exp_dict["mlm_masking_probability"],
             contrastive_masking_probability=exp_dict["contrastive_masking_probability"],
         ),
@@ -69,13 +69,13 @@ def trainval(exp_dict, savedir, args):
 
     (
         model.encoder,
-        model.similarities_coef,
+        model.temperature_coef,
         model.projection_head,
         model.opt,
         train_loader,
     ) = model.accelerator.prepare(
         model.encoder,
-        model.similarities_coef,
+        model.temperature_coef,
         model.projection_head,
         model.opt,
         train_loader,
@@ -108,7 +108,7 @@ def trainval(exp_dict, savedir, args):
                 model.get_state_dict(), os.path.join(savedir, "model.pth")
             )
 
-    print("Experiment done\n")
+    logging.info("Experiment done\n")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ class BERT(torch.nn.Module):
         self,
         model_config: str,
         vocab_size: int,
+        maximum_input_length: int,
         initial_temperature_coef: float,
         accelerator: Accelerator,
         alpha: float = 0.5,
@@ -34,6 +35,7 @@ class BERT(torch.nn.Module):
         Args:
             model_config (str): Model id.
             vocab_size (int): Number of tokens.
+            maximum_input_length (int): Maximum length of input sequence of tokens.
             initial_temperature_coef (float): Initial value of the temperature. This will be trated as a learnable parameter.
             accelerator (Accelerator): Accelerator object used for data parallel.
             alpha (float, optional): Value in [0,1] weighing BERT's and contrastive losses. Defaults to 0.5.
@@ -43,6 +45,7 @@ class BERT(torch.nn.Module):
         encoder_config = AutoConfig.from_pretrained(
             model_config,
             vocab_size=vocab_size,
+            max_position_embeddings=maximum_input_length,
             gradient_checkpointing=True,
             output_hidden_states=True,
         )
@@ -212,11 +215,7 @@ class BERT(torch.nn.Module):
         neg = sim.sum(dim=-1)
 
         # from each row, subtract e^(1/temp) to remove similarity measure for x1.x1
-        row_sub = (
-            torch.Tensor(neg.shape)
-            .fill_(math.e ** (1 / self.temperature_coef.get_temp_coef()))
-            .to(neg.device)
-        )
+        row_sub = torch.ones_like(neg)*(math.e ** (self.temperature_coef(1.0)))
         neg = torch.clamp(neg - row_sub, min=eps)  # clamp for numerical stability
 
         pos = torch.exp(self.temperature_coef(torch.sum(emb_1 * emb_2, dim=-1)))
@@ -291,6 +290,7 @@ def get_model(exp_dict: dict, accelerator: Accelerator) -> BERT:
     model = BERT(
         exp_dict["model_config"],
         exp_dict["vocab_size"],
+        exp_dict["maximum_input_length"],
         exp_dict["initial_temperature_coef"],
         accelerator,
         alpha=exp_dict["alpha"],

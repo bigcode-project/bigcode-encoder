@@ -24,7 +24,7 @@ BASE_CONFIG = {
     "tokenizer_path": "Salesforce/codegen-350M-multi",
     "mlm_masking_probability": 0.3,
     "contrastive_masking_probability": 0.5,
-    "maximum_length": 512,
+    "maximum_input_length": 512,
     "maximum_raw_length": 10000,
 }
 
