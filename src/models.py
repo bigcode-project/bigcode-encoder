@@ -84,6 +84,21 @@ class BERT(torch.nn.Module):
             seq_relationship_labels,
         ) = batch
 
+        with torch.no_grad():
+            # Not taping gradients of positive pairs embedding op to avoid accelerator.backward's error
+            # when running on more than one device.
+            positive_embedding = self.encoder(
+                input_ids=positive_input_ids, attention_mask=positive_pooling_masks
+            ).hidden_states[-1]
+
+            if self.use_projection:
+                positive_embedding = self.projection_head(positive_embedding)
+
+            normalized_positive_embedding = self.pool_and_normalize(
+                positive_embedding,
+                positive_pooling_masks,
+            )
+
         out = self.encoder(
             input_ids=input_ids,
             attention_mask=att_masks,
@@ -92,21 +107,11 @@ class BERT(torch.nn.Module):
         )
 
         embedding = out.hidden_states[-1]
-        positive_embedding = self.encoder(
-            input_ids=positive_input_ids, attention_mask=positive_pooling_masks
-        ).hidden_states[-1]
-
         if self.use_projection:
             embedding = self.projection_head(embedding)
-            positive_embedding = self.projection_head(positive_embedding)
-
         normalized_embedding = self.pool_and_normalize(
             embedding,
             pooling_masks,
-        )
-        normalized_positive_embedding = self.pool_and_normalize(
-            positive_embedding,
-            positive_pooling_masks,
         )
 
         sim_loss = self.info_nce_loss(
@@ -132,7 +137,7 @@ class BERT(torch.nn.Module):
         return {
             "train_loss": loss.item(),
             "bert_loss": out.loss.item(),
-            "sim_loss": sim_loss.item(),
+            "sim_loss": 0.0,  # sim_loss.item(),
         }
 
     def train_on_loader(
@@ -215,7 +220,7 @@ class BERT(torch.nn.Module):
         neg = sim.sum(dim=-1)
 
         # from each row, subtract e^(1/temp) to remove similarity measure for x1.x1
-        row_sub = torch.ones_like(neg)*(math.e ** (self.temperature_coef(1.0)))
+        row_sub = torch.ones_like(neg) * (math.e ** (self.temperature_coef(1.0)))
         neg = torch.clamp(neg - row_sub, min=eps)  # clamp for numerical stability
 
         pos = torch.exp(self.temperature_coef(torch.sum(emb_1 * emb_2, dim=-1)))

@@ -1,6 +1,6 @@
 BASE_CONFIG = {
     "model_config": "bert-base-cased",
-    "train_batch_size": 32,
+    "train_batch_size": 72,
     "skip_steps": 1,  # Training steps to accumulate gradients through prior to updating params.
     "initial_temperature_coef": 0.1,
     "use_projection": False,
