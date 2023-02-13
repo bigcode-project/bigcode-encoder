@@ -52,7 +52,7 @@ def pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 
 class TempCoef(torch.nn.Module):
-    """Module wrapping a temperature coeficient used to compute the InfoNCE during training."""
+    """Module wrapping a temperature coeficient used to compute contrastive losses."""
 
     def __init__(self, initial_value: float) -> None:
         """Constructs TempCoef instance.
@@ -74,7 +74,7 @@ class TempCoef(torch.nn.Module):
         """
         # Apply learnable temperature factor on similarities
         # Clamping after op to avoid numerical instabilities
-        logits_matrix /= self.temp_coef.clamp(1e-4, 1e2)
+        logits_matrix = logits_matrix * self.temp_coef.clamp(1e-4, 30.0)
 
         return logits_matrix
 
@@ -85,6 +85,38 @@ class TempCoef(torch.nn.Module):
             float: temperature value.
         """
         return self.temp_coef.data.item()
+
+
+def retrieval_eval(
+    x_source: torch.Tensor, x_target: torch.Tensor
+) -> List[torch.Tensor]:
+    """Performs retrieval evaluation given paired embeddings of source and target data.
+
+    Args:
+        x_source (torch.Tensor): Source batch of embeddings with shape [B, emb_dim].
+        x_target (torch.Tensor): Target batch of embeddings with shape [B, emb_dim].
+
+    Returns:
+        List[torch.Tensor]: Various retrieval metrics: R@1, R@5, and MRR.
+    """
+
+    # Compute similarity matrix
+    similarities = x_source @ x_target.T
+
+    topk_indices = torch.topk(similarities, k=similarities.size(1), dim=1)[1]
+
+    ce_labels = torch.arange(similarities.size(0)).long().view(similarities.size(0), 1)
+
+    # Bool tensor indicating which rows contain the idx corresponding to the main diag. of the sim matrix
+    results = topk_indices.eq(ce_labels)
+
+    r_at_1 = results[:, :1].sum() / float(similarities.size(0))
+    r_at_5 = results[:, :5].sum() / float(similarities.size(0))
+
+    ranks = results.nonzero()[:, 1].float() + 1.0
+    mrr = (1 / ranks).mean()
+
+    return r_at_1, r_at_5, mrr
 
 
 def modify_optimizer_state_dict(state):

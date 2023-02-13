@@ -11,6 +11,7 @@ from src.utils import (
     TempCoef,
     modify_model_state_dict,
     modify_optimizer_state_dict,
+    retrieval_eval,
 )
 from torch.optim.lr_scheduler import *
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -114,12 +115,12 @@ class BERT(torch.nn.Module):
             pooling_masks,
         )
 
-        sim_loss = self.info_nce_loss(
+        contrastive_loss = self.clip_contrastive_loss(
             normalized_embedding,
             normalized_positive_embedding,
         )
 
-        loss = out.loss * self.alpha + sim_loss * (1 - self.alpha)
+        loss = out.loss * self.alpha + contrastive_loss * (1 - self.alpha)
 
         # Backward pass
         self.accelerator.backward(
@@ -128,16 +129,22 @@ class BERT(torch.nn.Module):
 
         if update_parameters:
             # Clip gradients
-            self.accelerator.clip_grad_norm_(self.encoder.parameters(), self.grad_clip)
+            self.accelerator.clip_grad_norm_(self.parameters(), self.grad_clip)
 
             self.opt.step()
             self.opt.zero_grad()
             self.scheduler.step()
 
+        try:
+            temp_coef = self.temperature_coef.module.get_temp_coef()
+        except AttributeError:
+            temp_coef = self.temperature_coef.get_temp_coef()
+
         return {
             "train_loss": loss.item(),
             "bert_loss": out.loss.item(),
-            "sim_loss": 0.0,  # sim_loss.item(),
+            "cont_loss": contrastive_loss.item(),
+            "temp_coef": temp_coef,
         }
 
     def train_on_loader(
@@ -180,6 +187,76 @@ class BERT(torch.nn.Module):
 
         return train_dict
 
+    @torch.no_grad()
+    def eval_on_loader(self, loader, **extras):
+        self.eval()
+
+        contrastive_loss_list = []
+        source_embeddings_list = []
+        target_embeddings_list = []
+
+        for batch in loader:
+            (
+                source_inputs,
+                source_att_mask,
+                target_inputs,
+                target_att_mask,
+            ) = batch
+
+            source_embedding = self.encoder(
+                input_ids=source_inputs, attention_mask=source_att_mask
+            ).hidden_states[-1]
+            target_embedding = self.encoder(
+                input_ids=target_inputs, attention_mask=target_att_mask
+            ).hidden_states[-1]
+
+            if self.use_projection:
+                source_embedding = self.projection_head(source_embedding)
+                target_embedding = self.projection_head(target_embedding)
+
+            normalized_source_embedding = self.pool_and_normalize(
+                source_embedding,
+                source_att_mask,
+            )
+            normalized_target_embedding = self.pool_and_normalize(
+                target_embedding,
+                target_att_mask,
+            )
+
+            contrastive_loss = self.clip_contrastive_loss(
+                normalized_source_embedding,
+                normalized_target_embedding,
+            )
+
+            (
+                gathered_source_embedding,
+                gathered_target_embedding,
+            ) = self.accelerator.gather(
+                (normalized_source_embedding, normalized_target_embedding)
+            )
+
+            source_embeddings_list.append(gathered_source_embedding.cpu())
+            target_embeddings_list.append(gathered_target_embedding.cpu())
+
+            contrastive_loss = contrastive_loss.repeat(source_inputs.size(0))
+            contrastive_loss_list.append(self.accelerator.gather(contrastive_loss))
+
+        source_embedding = torch.cat(source_embeddings_list, 0)
+        target_embedding = torch.cat(target_embeddings_list, 0)
+
+        recall_at_1, recall_at_5, mean_reciprocal_rank = retrieval_eval(
+            source_embedding, target_embedding
+        )
+
+        return {
+            "test_contrastive_loss": torch.mean(
+                torch.cat(contrastive_loss_list)
+            ).item(),
+            "R@1": recall_at_1.item(),
+            "R@5": recall_at_5.item(),
+            "MRR": mean_reciprocal_rank.item(),
+        }
+
     def forward(
         self, ids: torch.Tensor, att_mask: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
@@ -194,7 +271,42 @@ class BERT(torch.nn.Module):
         """
         return self.encoder(input_ids=ids, attention_mask=att_mask)
 
-    def info_nce_loss(
+    def clip_contrastive_loss(
+        self, emb_1: torch.Tensor, emb_2: torch.Tensor
+    ) -> torch.Tensor:
+        """Computes contrastive CLIP-style loss.
+
+        Args:
+            emb_1 (torch.Tensor): Input embeddings.
+            emb_2 (torch.Tensor): Embedding of positive pairs (perturbed inputs)
+
+        Returns:
+            torch.Tensor: Contrastive loss.
+        """
+
+        emb_1_dist, emb_2_dist = self.accelerator.gather(
+            (
+                emb_1,
+                emb_2,
+            )
+        )
+
+        # Compute cosine similarity matrix
+        similarities = emb_1_dist @ emb_2_dist.T
+
+        similarities = self.temperature_coef(similarities)
+
+        # Matching representations of text and code assumed to be located at the main
+        # dioagonal of the similarity matrix if targets are not given
+        ce_labels = torch.arange(similarities.size(0)).long().to(similarities.device)
+
+        # We use a cross-entropy criterion to increase the similarities between
+        # matching representations of source and target
+        sim_loss = torch.nn.functional.cross_entropy(similarities, ce_labels)
+
+        return sim_loss
+
+    def info_nce_contrastive_loss(
         self, emb_1: torch.Tensor, emb_2: torch.Tensor, eps: float = 1e-6
     ) -> torch.Tensor:
         """Computes contrastive InfoNCE loss.
@@ -208,8 +320,12 @@ class BERT(torch.nn.Module):
             torch.Tensor: Contrastive loss.
         """
 
-        emb_1_dist = self.accelerator.gather(emb_1)
-        emb_2_dist = self.accelerator.gather(emb_2)
+        emb_1_dist, emb_2_dist = self.accelerator.gather(
+            (
+                emb_1,
+                emb_2,
+            )
+        )
 
         emb = torch.cat([emb_1, emb_2], dim=0)
         out_dist = torch.cat([emb_1_dist, emb_2_dist], dim=0)

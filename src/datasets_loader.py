@@ -1,24 +1,26 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 import torch
 from torch.utils.data import Dataset
 import datasets
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 from src.preprocessing_utils import (
     perturb_words,
     perturb_tokens,
     get_pooling_mask,
     pre_process_codesearchnet,
+    pre_process_gfg,
 )
 from src.constants import MASK_TOKEN, PAD_TOKEN, SEPARATOR_TOKEN, CLS_TOKEN
 
 DATASET_NAME_TO_PREPROCESSING_FUNCTION = {
     "code_search_net": pre_process_codesearchnet,
+    "gfg": pre_process_gfg,
 }
 
 
-class dataset(Dataset):
-    """Indexed dataset class."""
+class RandomlyPairedDataset(Dataset):
+    """Indexed dataset class with randomly picked negative pairs."""
 
     def __init__(self, base_dataset: datasets.Dataset) -> None:
         """Intanstiates an indexed dataset wrapping a base data source.
@@ -56,15 +58,53 @@ class dataset(Dataset):
         return example, negative_example
 
 
+class PairedDataset(Dataset):
+    """Indexed dataset class yielding source/target pairs."""
+
+    def __init__(self, base_dataset: datasets.Dataset) -> None:
+        """Intanstiates an indexed dataset wrapping a base data source.
+        We use this class to be able to get paired examples from the base dataset.
+        The base dataset must be pre-processed to include the fields 'source' and 'target'.
+
+        Args:
+            base_dataset (datasets.Dataset): Base indexed pre-processed data source.
+        """
+        self.data_source = base_dataset
+
+    def __len__(self) -> int:
+        """Returns the length of the dataset which matches that of the base data source.
+
+        Returns:
+            int: Dataset length.
+        """
+        return len(self.data_source)
+
+    def __getitem__(self, i: int) -> List[Dict]:
+        """Reads from the base dataset and returns a paier of examples.
+
+        Args:
+            i (int): Index to be read.
+
+        Returns:
+            List[Dict]: Pair of examples. The 'source' and 'target' fields of the example indexed by i are returned.
+        """
+
+        example = self.data_source[i]
+
+        return example["source"], example["target"]
+
+
 def get_dataset(
+    dataset_name: str,
     path_to_cache: str,
     split: str,
     maximum_raw_length: int,
     force_preprocess: bool = False,
-) -> dataset:
+) -> Union[PairedDataset, RandomlyPairedDataset]:
     """Get dataset instance.
 
     Args:
+        dataset_name (str): Name of the base dataset.
         path_to_cache (str): Path to the base dataset.
         split (str): data split in {'train', 'valid', 'test'}.
         maximum_raw_length (int, optional): Maximum length of the raw entries from the source dataset.
@@ -73,21 +113,35 @@ def get_dataset(
     Returns:
         dataset: An indexed dataset object.
     """
-    codesearchnet_dataset = load_dataset("code_search_net", cache_dir=path_to_cache)
+    try:
+        base_dataset = load_dataset(dataset_name, cache_dir=path_to_cache)[split]
+    except FileNotFoundError:
+        base_dataset = load_from_disk(path_to_cache)
 
     if force_preprocess:
-        codesearchnet_dataset.cleanup_cache_files()
+        base_dataset.cleanup_cache_files()
 
-    codesearchnet_dataset[split] = codesearchnet_dataset[split].map(
-        DATASET_NAME_TO_PREPROCESSING_FUNCTION["code_search_net"](maximum_raw_length),
+    base_dataset = base_dataset.map(
+        DATASET_NAME_TO_PREPROCESSING_FUNCTION[dataset_name](maximum_raw_length),
     )
 
-    return dataset(
-        codesearchnet_dataset[split],
-    )
+    training = "train" in split.lower()
+
+    if training:
+        return RandomlyPairedDataset(base_dataset)
+    else:
+        return PairedDataset(base_dataset)
 
 
-class Collator:
+def prepare_tokenizer(tokenizer):
+    tokenizer.add_special_tokens({"pad_token": PAD_TOKEN})
+    tokenizer.add_special_tokens({"sep_token": SEPARATOR_TOKEN})
+    tokenizer.add_special_tokens({"cls_token": CLS_TOKEN})
+    tokenizer.add_special_tokens({"mask_token": MASK_TOKEN})
+    return tokenizer
+
+
+class TrainCollator:
     """Collator object mapping sequences of items from dataset instance
     into batches of IDs and masks used for training models.
     """
@@ -111,11 +165,9 @@ class Collator:
         self.contrastive_masking_probability = contrastive_masking_probability
         self.maximum_length = maximum_length
 
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        self.tokenizer.add_special_tokens({"pad_token": PAD_TOKEN})
-        self.tokenizer.add_special_tokens({"sep_token": SEPARATOR_TOKEN})
-        self.tokenizer.add_special_tokens({"cls_token": CLS_TOKEN})
-        self.tokenizer.add_special_tokens({"mask_token": MASK_TOKEN})
+        self.tokenizer = prepare_tokenizer(
+            AutoTokenizer.from_pretrained(tokenizer_path)
+        )
 
         self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
         self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]
@@ -195,4 +247,78 @@ class Collator:
             positive_examples_att_mask,
             mlm_labels,
             seq_relationship_labels,
+        )
+
+
+class TestCollator:
+    """Collator object mapping sequences of items from dataset instance
+    into batches of IDs and masks used for training models.
+    """
+
+    def __init__(
+        self,
+        tokenizer_path: str,
+        maximum_length: int,
+    ) -> None:
+        """Creates instance of collator.
+
+        Args:
+            tokenizer_path (str): Path to tokenizer.
+            maximum_length (int): Truncating length of token sequences.
+        """
+        self.maximum_length = maximum_length
+
+        self.tokenizer = prepare_tokenizer(
+            AutoTokenizer.from_pretrained(tokenizer_path)
+        )
+
+        self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
+        self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]
+        self.mask_token_id = self.tokenizer.get_vocab()[self.tokenizer.mask_token]
+        self.cla_token_id = self.tokenizer.get_vocab()[self.tokenizer.cls_token]
+
+    def __call__(self, batch: List[Dict]) -> List[torch.Tensor]:
+        """Maps list of pairs of examples to batches of token ids, masks, and labels used for training.
+
+        Args:
+            batch (List[Dict]): List of pairs of examples.
+
+        Returns:
+            List[torch.Tensor]: Batches of tokens, masks, and labels.
+        """
+        source_list = [el[0] for el in batch]
+        target_list = [el[1] for el in batch]
+
+        source_examples_list = [
+            f"{CLS_TOKEN}{source_list[i]}{SEPARATOR_TOKEN}" for i in range(len(batch))
+        ]
+        target_examples_list = [
+            f"{CLS_TOKEN}{target_list[i]}{SEPARATOR_TOKEN}" for i in range(len(batch))
+        ]
+
+        source_examples_encoding = self.tokenizer(
+            source_examples_list,
+            padding="longest",
+            max_length=self.maximum_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        target_examples_encoding = self.tokenizer(
+            target_examples_list,
+            padding="longest",
+            max_length=self.maximum_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        source_examples_ids = source_examples_encoding.input_ids
+        source_examples_att_mask = source_examples_encoding.attention_mask
+        target_examples_ids = target_examples_encoding.input_ids
+        target_examples_att_mask = target_examples_encoding.attention_mask
+
+        return (
+            source_examples_ids,
+            source_examples_att_mask,
+            target_examples_ids,
+            target_examples_att_mask,
         )
