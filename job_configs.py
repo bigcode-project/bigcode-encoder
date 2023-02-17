@@ -16,7 +16,7 @@ JOB_CONFIG = {
             "snow.colab_public.data:/mnt/colab_public",
         ],
         "restartable": True,
-        "resources": {"cpu": 8, "mem": 32, "gpu": 4, "gpu_mem": 80},
+        "resources": {"cpu": 8, "mem": 32, "gpu": 8, "gpu_mem": 80},
         "interactive": False,
         "bid": 0,
     },

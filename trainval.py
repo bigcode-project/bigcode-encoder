@@ -40,15 +40,31 @@ def trainval(exp_dict, savedir, args):
         ),
         drop_last=True,
     )
-    test_data = datasets_loader.get_dataset(
+    gfg_test_data = datasets_loader.get_dataset(  # Geeks4Geeks data
         dataset_name="gfg",
         path_to_cache=GFG_DATA_PATH,
         split="test",
         maximum_raw_length=exp_dict["maximum_raw_length"],
     )
-    test_loader = torch.utils.data.DataLoader(
-        test_data,
-        batch_size=exp_dict["train_batch_size"],
+    gfg_test_loader = torch.utils.data.DataLoader(
+        gfg_test_data,
+        batch_size=exp_dict["test_batch_size"],
+        num_workers=exp_dict["n_workers"],
+        collate_fn=datasets_loader.TestCollator(
+            tokenizer_path=exp_dict["tokenizer_path"],
+            maximum_length=exp_dict["maximum_input_length"],
+        ),
+        drop_last=True,
+    )
+    csn_test_data = datasets_loader.get_dataset(  # CodeSearchNet validation data
+        dataset_name="code_search_net",
+        path_to_cache=args.data_path,
+        split="validation",
+        maximum_raw_length=exp_dict["maximum_raw_length"],
+    )
+    csn_test_loader = torch.utils.data.DataLoader(
+        csn_test_data,
+        batch_size=exp_dict["test_batch_size"],
         num_workers=exp_dict["n_workers"],
         collate_fn=datasets_loader.TestCollator(
             tokenizer_path=exp_dict["tokenizer_path"],
@@ -90,14 +106,16 @@ def trainval(exp_dict, savedir, args):
         model.projection_head,
         model.opt,
         train_loader,
-        test_loader,
+        gfg_test_loader,
+        csn_test_loader,
     ) = model.accelerator.prepare(
         model.encoder,
         model.temperature_coef,
         model.projection_head,
         model.opt,
         train_loader,
-        test_loader,
+        gfg_test_loader,
+        csn_test_loader,
     )
 
     # Train and Validate
@@ -111,9 +129,9 @@ def trainval(exp_dict, savedir, args):
             skip_steps=exp_dict["skip_steps"],
             log_every=args.log_every,
         )
-        test_dict = model.eval_on_loader(
-            test_loader,
-        )
+
+        gfg_test_dict = model.eval_on_loader(gfg_test_loader, logging_prefix="gfg")
+        csn_test_dict = model.eval_on_loader(csn_test_loader, logging_prefix="csn")
 
         if model.accelerator.is_main_process:
 
@@ -122,7 +140,8 @@ def trainval(exp_dict, savedir, args):
                 "epoch": epoch,
             }
             score_dict.update(train_dict)
-            score_dict.update(test_dict)
+            score_dict.update(gfg_test_dict)
+            score_dict.update(csn_test_dict)
 
             # Save Metrics in "savedir" as score_list.pkl
             cm.log_metrics(score_dict)

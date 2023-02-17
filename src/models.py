@@ -248,13 +248,15 @@ class BERT(torch.nn.Module):
             source_embedding, target_embedding
         )
 
+        logging_prefix = extras.get("logging_prefix", "test")
+
         return {
-            "test_contrastive_loss": torch.mean(
+            f"{logging_prefix}_contrastive_loss": torch.mean(
                 torch.cat(contrastive_loss_list)
             ).item(),
-            "R@1": recall_at_1.item(),
-            "R@5": recall_at_5.item(),
-            "MRR": mean_reciprocal_rank.item(),
+            f"{logging_prefix}_R@1": recall_at_1.item(),
+            f"{logging_prefix}_R@5": recall_at_5.item(),
+            f"{logging_prefix}_MRR": mean_reciprocal_rank.item(),
         }
 
     def forward(
@@ -296,13 +298,16 @@ class BERT(torch.nn.Module):
 
         similarities = self.temperature_coef(similarities)
 
-        # Matching representations of text and code assumed to be located at the main
+        # Matching representations of positive pairs assumed to be located at the main
         # dioagonal of the similarity matrix if targets are not given
         ce_labels = torch.arange(similarities.size(0)).long().to(similarities.device)
 
         # We use a cross-entropy criterion to increase the similarities between
         # matching representations of source and target
-        sim_loss = torch.nn.functional.cross_entropy(similarities, ce_labels)
+        sim_loss = 0.5 * (
+            torch.nn.functional.cross_entropy(similarities, ce_labels)
+            + torch.nn.functional.cross_entropy(similarities.T, ce_labels)
+        )
 
         return sim_loss
 

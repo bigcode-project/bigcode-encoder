@@ -1,4 +1,5 @@
 from typing import Dict, List, Union
+from matplotlib import docstring
 import torch
 from src.constants import PADDING_ID_FOR_LABELS
 
@@ -136,7 +137,7 @@ def get_pooling_mask(
     return pooling_mask
 
 
-class pre_process_codesearchnet:
+class pre_process_codesearchnet_train:
     def __init__(self, maximum_length: int) -> None:
         """Pre process code search net data by truncating and splitting code snippets.
 
@@ -157,6 +158,31 @@ class pre_process_codesearchnet:
         code_str = example["func_code_string"]
         code_str_source, code_str_target = split_sentence(code_str, self.maximum_length)
         example.update({"source": code_str_source, "target": code_str_target})
+        return example
+
+
+class pre_process_codesearchnet_test:
+    def __init__(self, maximum_length: int) -> None:
+        """Pre process code search net data by truncating and pairing code and docstring.
+
+        Args:
+            maximum_length (int): Max length of code snippets.
+        """
+        self.maximum_length = maximum_length
+
+    def __call__(self, example: Dict) -> Dict:
+        """Reads and truncates code and doc strings.
+
+        Args:
+            example (Dict): Input data example.
+
+        Returns:
+            Dict: Pre-processed example.
+        """
+        source = example["func_documentation_tokens"]
+        source = (" ").join(source)[: self.maximum_length]
+        target = example["func_code_string"][: self.maximum_length]
+        example.update({"source": source, "target": target})
         return example
 
 

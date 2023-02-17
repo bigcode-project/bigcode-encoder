@@ -8,14 +8,21 @@ from src.preprocessing_utils import (
     perturb_words,
     perturb_tokens,
     get_pooling_mask,
-    pre_process_codesearchnet,
+    pre_process_codesearchnet_train,
+    pre_process_codesearchnet_test,
     pre_process_gfg,
 )
 from src.constants import MASK_TOKEN, PAD_TOKEN, SEPARATOR_TOKEN, CLS_TOKEN
 
 DATASET_NAME_TO_PREPROCESSING_FUNCTION = {
-    "code_search_net": pre_process_codesearchnet,
-    "gfg": pre_process_gfg,
+    "code_search_net": {
+        "train": pre_process_codesearchnet_train,
+        "test": pre_process_codesearchnet_test,
+    },
+    "gfg": {
+        "train": pre_process_gfg,
+        "test": pre_process_gfg,
+    },
 }
 
 
@@ -121,13 +128,18 @@ def get_dataset(
     if force_preprocess:
         base_dataset.cleanup_cache_files()
 
+    if "train" in split.lower():
+        split_preproc_key = "train"
+    else:
+        split_preproc_key = "test"
+
     base_dataset = base_dataset.map(
-        DATASET_NAME_TO_PREPROCESSING_FUNCTION[dataset_name](maximum_raw_length),
+        DATASET_NAME_TO_PREPROCESSING_FUNCTION[dataset_name][split_preproc_key](
+            maximum_raw_length
+        ),
     )
 
-    training = "train" in split.lower()
-
-    if training:
+    if "train" in split_preproc_key:
         return RandomlyPairedDataset(base_dataset)
     else:
         return PairedDataset(base_dataset)
