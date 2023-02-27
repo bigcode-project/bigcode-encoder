@@ -43,31 +43,6 @@ def perturb_tokens(
     return perturbed_ids, mlm_labels
 
 
-def perturb_words(
-    input_sentence: str, masking_fraction: float, masking_token: Union[int, float]
-) -> str:
-    """Perturbs words in a given sentence.
-
-    Args:
-        input_sentence (str): input sentence.
-        masking_fraction (float): Probability of masking out any given word.
-        masking_token (Union[int, float]): Token used for masking. E.g., '<mask>' or [MASK].
-
-    Returns:
-        str: Perturbed version of input sentence.
-    """
-
-    output_words = []
-
-    for word in input_sentence.split(" "):
-        if torch.rand(1).item() < masking_fraction:
-            output_words.append(masking_token)
-        else:
-            output_words.append(word)
-
-    return " ".join(output_words)
-
-
 def truncate_sentences(
     sentence_list: List[str], maximum_length: Union[int, float]
 ) -> List[str]:

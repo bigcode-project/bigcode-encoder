@@ -5,7 +5,6 @@ import datasets
 from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 from src.preprocessing_utils import (
-    perturb_words,
     perturb_tokens,
     get_pooling_mask,
     pre_process_codesearchnet_train,
@@ -62,7 +61,7 @@ class RandomlyPairedDataset(Dataset):
         example = self.data_source[i]
         negative_example = self.data_source[rand_idx]
 
-        return example, negative_example
+        return example["source"], example["target"], negative_example["source"]
 
 
 class PairedDataset(Dataset):
@@ -107,6 +106,7 @@ def get_dataset(
     split: str,
     maximum_raw_length: int,
     force_preprocess: bool = False,
+    maximum_row_cout: int = None,
 ) -> Union[PairedDataset, RandomlyPairedDataset]:
     """Get dataset instance.
 
@@ -116,6 +116,7 @@ def get_dataset(
         split (str): data split in {'train', 'valid', 'test'}.
         maximum_raw_length (int, optional): Maximum length of the raw entries from the source dataset.
         force_preprocess (bool, optional): Whether to force pre-processing. Defaults to False.
+        maximum_row_cout (int, optional) = Maximum size of the dataset in term of row count. Defaults to None.
 
     Returns:
         dataset: An indexed dataset object.
@@ -127,6 +128,11 @@ def get_dataset(
 
     if force_preprocess:
         base_dataset.cleanup_cache_files()
+
+    if maximum_row_cout is not None:
+        base_dataset = base_dataset.shuffle(seed=42).select(
+            range(min(len(base_dataset), maximum_row_cout))
+        )
 
     if "train" in split.lower():
         split_preproc_key = "train"
@@ -154,7 +160,7 @@ def prepare_tokenizer(tokenizer):
 
 
 class TrainCollator:
-    """Collator object mapping sequences of items from dataset instance
+    """Train collator object mapping sequences of items from dataset instance
     into batches of IDs and masks used for training models.
     """
 
@@ -164,6 +170,7 @@ class TrainCollator:
         maximum_length: int,
         mlm_masking_probability: float,
         contrastive_masking_probability: float,
+        **kwargs,
     ) -> None:
         """Creates instance of collator.
 
@@ -184,36 +191,33 @@ class TrainCollator:
         self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
         self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]
         self.mask_token_id = self.tokenizer.get_vocab()[self.tokenizer.mask_token]
-        self.cla_token_id = self.tokenizer.get_vocab()[self.tokenizer.cls_token]
+        self.cls_token_id = self.tokenizer.get_vocab()[self.tokenizer.cls_token]
 
-    def __call__(self, batch: List[Dict]) -> List[torch.Tensor]:
-        """Maps list of pairs of examples to batches of token ids, masks, and labels used for training.
+    def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+        """Maps list of triplets of examples to batches of token ids, masks, and labels used for training.
+        The firt two elements in a triplet correspond to neighbor chunkes from the same file. The third
+        element corresponds to a chunk from a random file.
 
         Args:
             batch (List[Dict]): List of pairs of examples.
 
         Returns:
-            List[torch.Tensor]: Batches of tokens, masks, and labels.
+            Dict[str, torch.Tensor]: Batches of tokens, masks, and labels.
         """
         source_list = [
-            el[0]["source"] for el in batch
+            el[0] for el in batch
         ]  # el[0] is the first half of a code snippet.
         # Following are the labels for the seq relationship loss: 0 -> negative pair, 1 -> positive pair.
         seq_relationship_labels = torch.randint(0, 2, (len(batch),)).long()
         target_list = [
             # seq_relationship_label==1 -> positive pair -> we take the second half of the code snippet
             # seq_relationship_label==0 -> negative pair -> we take a random code snippet given in el[1]
-            el[0]["target"] if seq_relationship_labels[i] == 1 else el[1]["source"]
+            el[1] if seq_relationship_labels[i] == 1 else el[2]
             for i, el in enumerate(batch)
         ]
 
         input_examples_list = [  # Combine source and target w/ template: [CLS] SOURCE [SEP] [TARGET] [SEP]
             f"{CLS_TOKEN}{source_list[i]}{SEPARATOR_TOKEN}{target_list[i]}{SEPARATOR_TOKEN}"
-            for i in range(len(batch))
-        ]
-
-        positive_examples_list = [  # Positve example are perturbed versions of the source, used for the contrastive loss.
-            f"{CLS_TOKEN}{perturb_words(source_list[i], self.contrastive_masking_probability, self.tokenizer.mask_token)}{SEPARATOR_TOKEN}"
             for i in range(len(batch))
         ]
 
@@ -229,9 +233,7 @@ class TrainCollator:
         input_examples_att_mask = (
             input_examples_encoding.attention_mask
         )  # Padding masks.
-        input_examples_pooling_mask = get_pooling_mask(
-            input_examples_ids, self.sep_token_id
-        )  # Pooling masks indicate the first [SEP] occurrence, used for seq embedding.
+
         input_examples_ids, mlm_labels = perturb_tokens(
             input_examples_ids,
             input_examples_att_mask,
@@ -239,39 +241,34 @@ class TrainCollator:
             self.mask_token_id,
         )  # Dynamically perturbs input tokens and generates corresponding mlm labels.
 
-        positive_examples_encoding = self.tokenizer(
-            positive_examples_list,
-            padding="longest",
-            max_length=self.maximum_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-
-        positive_examples_ids = positive_examples_encoding.input_ids
-        # Padding and pooling masks coincide for positive examples since there's only one [SEP] at the end.
-        positive_examples_att_mask = positive_examples_encoding.attention_mask
-
-        return (
+        positive_examples_ids, positive_mlm_labels = perturb_tokens(
             input_examples_ids,
             input_examples_att_mask,
-            input_examples_pooling_mask,
-            positive_examples_ids,
-            positive_examples_att_mask,
-            mlm_labels,
-            seq_relationship_labels,
+            self.contrastive_masking_probability,
+            self.mask_token_id,
+        )  # Positve examples are independently perturbed versions of the source, used for the contrastive loss.
+
+        input_ids = torch.cat([input_examples_ids, positive_examples_ids], 0)
+        attention_mask = torch.cat(
+            [input_examples_att_mask, input_examples_att_mask.clone()], 0
         )
+        pooling_mask = get_pooling_mask(
+            input_ids, self.sep_token_id
+        )  # Pooling masks indicate the first [SEP] occurrence, used for seq embedding.
+        labels = torch.cat([mlm_labels, positive_mlm_labels], 0)
+        next_sentence_label = torch.cat(
+            [seq_relationship_labels, seq_relationship_labels.clone()], 0
+        )
+
+        return input_ids, attention_mask, pooling_mask, labels, next_sentence_label
 
 
 class TestCollator:
-    """Collator object mapping sequences of items from dataset instance
+    """Test collator object mapping sequences of items from dataset instance
     into batches of IDs and masks used for training models.
     """
 
-    def __init__(
-        self,
-        tokenizer_path: str,
-        maximum_length: int,
-    ) -> None:
+    def __init__(self, tokenizer_path: str, maximum_length: int, **kwargs) -> None:
         """Creates instance of collator.
 
         Args:
@@ -287,16 +284,16 @@ class TestCollator:
         self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
         self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]
         self.mask_token_id = self.tokenizer.get_vocab()[self.tokenizer.mask_token]
-        self.cla_token_id = self.tokenizer.get_vocab()[self.tokenizer.cls_token]
+        self.cls_token_id = self.tokenizer.get_vocab()[self.tokenizer.cls_token]
 
-    def __call__(self, batch: List[Dict]) -> List[torch.Tensor]:
+    def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
         """Maps list of pairs of examples to batches of token ids, masks, and labels used for training.
 
         Args:
             batch (List[Dict]): List of pairs of examples.
 
         Returns:
-            List[torch.Tensor]: Batches of tokens, masks, and labels.
+            Dict[str, torch.Tensor]: Batches of tokens and masks.
         """
         source_list = [el[0] for el in batch]
         target_list = [el[1] for el in batch]
@@ -308,29 +305,68 @@ class TestCollator:
             f"{CLS_TOKEN}{target_list[i]}{SEPARATOR_TOKEN}" for i in range(len(batch))
         ]
 
-        source_examples_encoding = self.tokenizer(
-            source_examples_list,
-            padding="longest",
-            max_length=self.maximum_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        target_examples_encoding = self.tokenizer(
-            target_examples_list,
+        source_target_examples_encoding = self.tokenizer(
+            source_examples_list + target_examples_list,
             padding="longest",
             max_length=self.maximum_length,
             truncation=True,
             return_tensors="pt",
         )
 
-        source_examples_ids = source_examples_encoding.input_ids
-        source_examples_att_mask = source_examples_encoding.attention_mask
-        target_examples_ids = target_examples_encoding.input_ids
-        target_examples_att_mask = target_examples_encoding.attention_mask
+        source_target_examples_ids = source_target_examples_encoding.input_ids
+        source_target_examples_att_mask = source_target_examples_encoding.attention_mask
 
-        return (
-            source_examples_ids,
-            source_examples_att_mask,
-            target_examples_ids,
-            target_examples_att_mask,
+        return source_target_examples_ids, source_target_examples_att_mask
+
+
+class Collator:
+    """Object wrapping both train and test collators.
+    Decides which collator to use depending on the configuration of the batch.
+    Pair of examples --> test instance
+    Triplet of examples --> train instances
+    """
+
+    def __init__(
+        self,
+        tokenizer_path: str,
+        maximum_length: int,
+        mlm_masking_probability: float = 0.5,
+        contrastive_masking_probability: float = 0.5,
+    ) -> None:
+        """Creates instance of collator.
+
+        Args:
+            tokenizer_path (str): Path to tokenizer.
+            maximum_length (int): Truncating length of token sequences.
+            mlm_masking_probability (float, optional): Masking probability for MLM objective. Defaults to 0.5.
+            contrastive_masking_probability (float, optional): Masking probability for contrastive objective. Defaults to 0.5.
+        """
+        self.train_collator = TrainCollator(
+            tokenizer_path=tokenizer_path,
+            maximum_length=maximum_length,
+            mlm_masking_probability=mlm_masking_probability,
+            contrastive_masking_probability=contrastive_masking_probability,
         )
+        self.test_collator = TestCollator(
+            tokenizer_path=tokenizer_path,
+            maximum_length=maximum_length,
+        )
+
+        self.vocabulary_size = len(self.train_collator.tokenizer.vocab)
+
+    def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+        """Maps list of pairs of examples to batches of token ids, masks, and labels used for training.
+
+        Args:
+            batch (List[Dict]): List of pairs of examples.
+
+        Returns:
+            Dict[str, torch.Tensor]: Batches of tokens and masks.
+        """
+
+        if len(batch[0]) == 3:
+            return self.train_collator(batch)
+        elif len(batch[0]) == 2:
+            return self.test_collator(batch)
+        else:
+            raise AttributeError("Unknown batch configuration.")

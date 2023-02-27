@@ -1,13 +1,19 @@
+import sys
 import os
 import logging
 import argparse
-import tqdm
-import torch
 import exp_configs
-from accelerate import Accelerator
-from src import datasets_loader, models
-from src.constants import RESULTS_FNAME, GFG_DATA_PATH
+from src import datasets_loader, hf_trainer
+from src.constants import RESULTS_FNAME, GFG_DATA_PATH, MAX_VALID_DATA_ROW_COUNT
 from haven import haven_wizard as hw
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 
 def trainval(exp_dict, savedir, args):
@@ -17,10 +23,6 @@ def trainval(exp_dict, savedir, args):
     args: arguments passed through the command line
     """
 
-    accelerator = Accelerator()
-
-    logging.info(f"Accelerator info: {accelerator.device}, {accelerator.num_processes}")
-
     # Create data loaders and model
     train_data = datasets_loader.get_dataset(
         dataset_name="code_search_net",
@@ -28,127 +30,37 @@ def trainval(exp_dict, savedir, args):
         split="train",
         maximum_raw_length=exp_dict["maximum_raw_length"],
     )
-    train_loader = torch.utils.data.DataLoader(
-        train_data,
-        batch_size=exp_dict["train_batch_size"],
-        num_workers=exp_dict["n_workers"],
-        collate_fn=datasets_loader.TrainCollator(
-            tokenizer_path=exp_dict["tokenizer_path"],
-            maximum_length=exp_dict["maximum_input_length"],
-            mlm_masking_probability=exp_dict["mlm_masking_probability"],
-            contrastive_masking_probability=exp_dict["contrastive_masking_probability"],
-        ),
-        drop_last=True,
-    )
     gfg_test_data = datasets_loader.get_dataset(  # Geeks4Geeks data
         dataset_name="gfg",
         path_to_cache=GFG_DATA_PATH,
         split="test",
         maximum_raw_length=exp_dict["maximum_raw_length"],
+        maximum_row_cout=MAX_VALID_DATA_ROW_COUNT,
     )
-    gfg_test_loader = torch.utils.data.DataLoader(
-        gfg_test_data,
-        batch_size=exp_dict["test_batch_size"],
-        num_workers=exp_dict["n_workers"],
-        collate_fn=datasets_loader.TestCollator(
-            tokenizer_path=exp_dict["tokenizer_path"],
-            maximum_length=exp_dict["maximum_input_length"],
-        ),
-        drop_last=True,
-    )
-    csn_test_data = datasets_loader.get_dataset(  # CodeSearchNet validation data
-        dataset_name="code_search_net",
-        path_to_cache=args.data_path,
-        split="validation",
-        maximum_raw_length=exp_dict["maximum_raw_length"],
-    )
-    csn_test_loader = torch.utils.data.DataLoader(
-        csn_test_data,
-        batch_size=exp_dict["test_batch_size"],
-        num_workers=exp_dict["n_workers"],
-        collate_fn=datasets_loader.TestCollator(
-            tokenizer_path=exp_dict["tokenizer_path"],
-            maximum_length=exp_dict["maximum_input_length"],
-        ),
-        drop_last=True,
+    collate_fn = datasets_loader.Collator(
+        tokenizer_path=exp_dict["tokenizer_path"],
+        maximum_length=exp_dict["maximum_input_length"],
     )
 
-    # Configures scheduler with the correct number of iterations rather than epochs.
-    iterations_per_epoch = len(train_loader) // (
-        accelerator.num_processes * exp_dict["skip_steps"]
-    )
-    if "max_epochs" in exp_dict["scheduler_config"]["kwargs"]:
-        exp_dict["scheduler_config"]["kwargs"]["max_epochs"] = (
-            args.epochs * iterations_per_epoch
-        )
-    if "warmup_epochs" in exp_dict["scheduler_config"]["kwargs"]:
-        exp_dict["scheduler_config"]["kwargs"]["warmup_epochs"] = (
-            exp_dict["scheduler_config"]["kwargs"]["warmup_epochs"]
-            * iterations_per_epoch
-        )
+    exp_dict["vocab_size"] = collate_fn.vocabulary_size
 
-    exp_dict["vocab_size"] = len(train_loader.collate_fn.tokenizer.vocab)
-
-    model = models.get_model(
+    trainer = hf_trainer.get_trainer(
         exp_dict=exp_dict,
-        accelerator=accelerator,
+        savedir=savedir,
+        epochs=args.epochs,
+        train_dataset=train_data,
+        valid_dataset=gfg_test_data,
+        collate_fn=collate_fn,
+        log_every=args.log_every,
+        local_rank=args.local_rank,
+        deepspeed_cfg_path=args.deepspeed,
     )
 
-    # Resume or initialize checkpoint
-    cm = hw.CheckpointManager(savedir)
-    state_dict = cm.load_model()
-    if state_dict is not None:
-        model.set_state_dict(state_dict)
-
-    (
-        model.encoder,
-        model.temperature_coef,
-        model.projection_head,
-        model.opt,
-        train_loader,
-        gfg_test_loader,
-        csn_test_loader,
-    ) = model.accelerator.prepare(
-        model.encoder,
-        model.temperature_coef,
-        model.projection_head,
-        model.opt,
-        train_loader,
-        gfg_test_loader,
-        csn_test_loader,
-    )
-
-    # Train and Validate
-    for epoch in tqdm.tqdm(
-        range(cm.get_epoch(), args.epochs), desc="Running Experiment"
-    ):
-        # Train for one epoch
-        train_dict = model.train_on_loader(
-            train_loader,
-            epoch=epoch,
-            skip_steps=exp_dict["skip_steps"],
-            log_every=args.log_every,
+    trainer.train(
+        resume_from_checkpoint=any(
+            dir.startswith("checkpoint") for dir in os.listdir(savedir)
         )
-
-        gfg_test_dict = model.eval_on_loader(gfg_test_loader, logging_prefix="gfg")
-        csn_test_dict = model.eval_on_loader(csn_test_loader, logging_prefix="csn")
-
-        if model.accelerator.is_main_process:
-
-            # Get Metrics
-            score_dict = {
-                "epoch": epoch,
-            }
-            score_dict.update(train_dict)
-            score_dict.update(gfg_test_dict)
-            score_dict.update(csn_test_dict)
-
-            # Save Metrics in "savedir" as score_list.pkl
-            cm.log_metrics(score_dict)
-
-            model.accelerator.save(
-                model.get_state_dict(), os.path.join(savedir, "model.pth")
-            )
+    )
 
     logging.info("Experiment done\n")
 
@@ -190,6 +102,25 @@ if __name__ == "__main__":
         default=1000,
         type=int,
         help="Number of iterations to wait before logging training scores.",
+    )
+    parser.add_argument(
+        "--dist_url",
+        default="env://",
+        type=str,
+        help="""url used to set up
+        distributed training; see https://pytorch.org/docs/stable/distributed.html""",
+    )
+    parser.add_argument(
+        "--local_rank",
+        default=0,
+        type=int,
+        help="Please ignore and do not set this argument.",
+    )
+    parser.add_argument(
+        "--deepspeed",
+        default=None,
+        type=str,
+        help="""Optional path to deepspeed config.""",
     )
 
     args, others = parser.parse_known_args()

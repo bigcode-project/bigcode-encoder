@@ -1,5 +1,6 @@
 from typing import Dict, List, Union
 import torch
+from accelerate.utils.operations import _gpu_gather
 
 
 def get_params_groups(
@@ -29,26 +30,6 @@ def get_params_groups(
         {"params": regularized, "weight_decay": wd},
         {"params": not_regularized, "weight_decay": 0.0},
     ]
-
-
-def pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    """Pools a batch of vector sequences into a batch of vector global representations.
-    It does so by taking the last vector in the sequence, as indicated by the mask.
-
-    Args:
-        x (torch.Tensor): Batch of vector sequences with shape [B, T, F].
-        mask (torch.Tensor): Batch of masks with shape [B, T].
-
-    Returns:
-        torch.Tensor: Pooled version of the input batch with shape [B, F].
-    """
-
-    eos_idx = mask.sum(1) - 1
-    batch_idx = torch.arange(len(eos_idx), device=x.device)
-
-    mu = x[batch_idx, eos_idx, :]
-
-    return mu
 
 
 class TempCoef(torch.nn.Module):
@@ -85,6 +66,87 @@ class TempCoef(torch.nn.Module):
             float: temperature value.
         """
         return self.temp_coef.data.item()
+
+
+def clip_contrastive_loss(
+    emb_1: torch.Tensor, emb_2: torch.Tensor, temperature_coef: TempCoef
+) -> torch.Tensor:
+    """Computes contrastive CLIP-style loss.
+
+    Args:
+        emb_1 (torch.Tensor): Input embeddings.
+        emb_2 (torch.Tensor): Embedding of positive pairs (perturbed inputs)
+
+    Returns:
+        torch.Tensor: Contrastive loss.
+    """
+
+    # Gathers embeddings across devices.
+    emb_1_dist, emb_2_dist = _gpu_gather(
+        (
+            emb_1,
+            emb_2,
+        )
+    )
+
+    # Compute cosine similarity matrix
+    similarities = emb_1_dist @ emb_2_dist.T
+
+    similarities = temperature_coef(similarities)
+
+    # Matching representations of positive pairs assumed to be located at the main
+    # dioagonal of the similarity matrix if targets are not given
+    ce_labels = torch.arange(similarities.size(0)).long().to(similarities.device)
+
+    # We use a cross-entropy criterion to increase the similarities between
+    # matching representations of source and target
+    sim_loss = 0.5 * (
+        torch.nn.functional.cross_entropy(similarities, ce_labels)
+        + torch.nn.functional.cross_entropy(similarities.T, ce_labels)
+    )
+
+    return sim_loss
+
+
+def pool_and_normalize(
+    features_sequence: torch.Tensor, attention_masks: torch.Tensor
+) -> torch.Tensor:
+    """Temporal ooling of sequences of vectors and projection onto the unit sphere.
+
+    Args:
+        features_sequence (torch.Tensor): Inpute features with shape [B, T, F].
+        attention_masks (torch.Tensor): Pooling masks with shape [B, T, F].
+
+    Returns:
+        torch.Tensor: Pooled and normalized vectors with shape [B, F].
+    """
+
+    pooled_embeddings = pooling(features_sequence, attention_masks)
+    pooled_normalized_embeddings = (
+        pooled_embeddings / pooled_embeddings.norm(dim=1)[:, None]
+    )
+
+    return pooled_normalized_embeddings
+
+
+def pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Pools a batch of vector sequences into a batch of vector global representations.
+    It does so by taking the last vector in the sequence, as indicated by the mask.
+
+    Args:
+        x (torch.Tensor): Batch of vector sequences with shape [B, T, F].
+        mask (torch.Tensor): Batch of masks with shape [B, T].
+
+    Returns:
+        torch.Tensor: Pooled version of the input batch with shape [B, F].
+    """
+
+    eos_idx = mask.sum(1) - 1
+    batch_idx = torch.arange(len(eos_idx), device=x.device)
+
+    mu = x[batch_idx, eos_idx, :]
+
+    return mu
 
 
 def retrieval_eval(
