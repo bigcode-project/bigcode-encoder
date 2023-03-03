@@ -4,6 +4,7 @@ import logging
 import argparse
 import exp_configs
 from src import datasets_loader, hf_trainer
+from src.training_args import parse_args
 from src.constants import RESULTS_FNAME, GFG_DATA_PATH, MAX_VALID_DATA_ROW_COUNT
 from haven import haven_wizard as hw
 
@@ -66,64 +67,7 @@ def train(exp_dict, savedir, args):
 
 
 if __name__ == "__main__":
-    # Specify arguments regarding save directory and job scheduler
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-e",
-        "--exp_group",
-        help="Define the experiment group to run.",
-    )
-    parser.add_argument(
-        "-sb",
-        "--savedir_base",
-        required=True,
-        help="Define the base directory where the experiments will be saved.",
-    )
-    parser.add_argument(
-        "--train_data_name",
-        type=str,
-        default="bigcode/the-stack-march-sample",
-        help="Name of training dataset.",
-    )
-    parser.add_argument(
-        "-d",
-        "--data_path",
-        required=True,
-        help="Define the base directory where data will be cached.",
-    )
-    parser.add_argument(
-        "-r", "--reset", default=0, type=int, help="Reset or resume the experiment."
-    )
-    parser.add_argument(
-        "-j", "--job_scheduler", default=None, help="Choose Job Scheduler."
-    )
-    parser.add_argument(
-        "--python_binary", default="python", help="path to your python executable"
-    )
-    parser.add_argument(
-        "--epochs", default=100, type=int, help="Number of epochs to train."
-    )
-    parser.add_argument(
-        "--log_every",
-        default=1000,
-        type=int,
-        help="Number of iterations to wait before logging training scores.",
-    )
-    parser.add_argument(
-        "--dist_url",
-        default="env://",
-        type=str,
-        help="""url used to set up
-        distributed training; see https://pytorch.org/docs/stable/distributed.html""",
-    )
-    parser.add_argument(
-        "--deepspeed",
-        default=None,
-        type=lambda x: None if x is None or "none" in str(x).lower() else str(x),
-        help="""Optional path to deepspeed config.""",
-    )
-
-    args, others = parser.parse_known_args()
+    args, others = parse_args()
 
     try:
         args.local_rank = int(os.environ["LOCAL_RANK"])
@@ -140,7 +84,7 @@ if __name__ == "__main__":
 
     # Run experiments and create results file
     hw.run_wizard(
-        func=trainval,
+        func=train,
         exp_list=exp_configs.EXP_GROUPS[args.exp_group],
         savedir_base=args.savedir_base,
         reset=args.reset,

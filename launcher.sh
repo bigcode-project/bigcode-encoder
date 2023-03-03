@@ -8,4 +8,4 @@ trainval.py \
 -e base \
 --epochs 100 \
 -sb $PATH_TO_LOG \
---data_path $PATH_TO_DATA \
+--data_path $PATH_TO_DATA
