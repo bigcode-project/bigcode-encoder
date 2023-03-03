@@ -1,7 +1,7 @@
 import os
 
 EAI_ACCOUNT_ID_TO_USER = {
-    "123": "123",
+    "123": "123"
 }
 
 eai_account_id = os.environ["EAI_ACCOUNT_ID"]

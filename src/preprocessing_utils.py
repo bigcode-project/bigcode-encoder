@@ -186,3 +186,28 @@ class pre_process_gfg:
         example.update({"source": source, "target": target})
 
         return example
+
+
+class pre_process_the_stack:
+    def __init__(self, maximum_length: int) -> None:
+        """Pre process Python-Java Geeks4Geeks data by truncating and pairing code snippets.
+
+        Args:
+            maximum_length (int): Max length of code snippets.
+        """
+        self.maximum_length = maximum_length
+
+    def __call__(self, example: Dict) -> Dict:
+        """Reads, truncates, and splits code strings.
+
+        Args:
+            example (Dict): Input data example.
+
+        Returns:
+            Dict: Pre-processed example.
+        """
+
+        code_str = example["content"]
+        code_str_source, code_str_target = split_sentence(code_str, self.maximum_length)
+        example.update({"source": code_str_source, "target": code_str_target})
+        return example

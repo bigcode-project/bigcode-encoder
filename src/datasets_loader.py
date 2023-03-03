@@ -10,10 +10,15 @@ from src.preprocessing_utils import (
     pre_process_codesearchnet_train,
     pre_process_codesearchnet_test,
     pre_process_gfg,
+    pre_process_the_stack,
 )
 from src.constants import MASK_TOKEN, PAD_TOKEN, SEPARATOR_TOKEN, CLS_TOKEN
 
 DATASET_NAME_TO_PREPROCESSING_FUNCTION = {
+    "the-stack": {
+        "train": pre_process_the_stack,
+        "test": pre_process_the_stack,
+    },
     "code_search_net": {
         "train": pre_process_codesearchnet_train,
         "test": pre_process_codesearchnet_test,
@@ -122,7 +127,7 @@ def get_dataset(
         dataset: An indexed dataset object.
     """
     try:
-        base_dataset = load_dataset(dataset_name, cache_dir=path_to_cache)[split]
+        base_dataset = load_dataset(dataset_name, use_auth_token=True, cache_dir=path_to_cache)[split]
     except FileNotFoundError:
         base_dataset = load_from_disk(path_to_cache)
 
@@ -139,10 +144,19 @@ def get_dataset(
     else:
         split_preproc_key = "test"
 
+    try:
+        pre_proc_fn = DATASET_NAME_TO_PREPROCESSING_FUNCTION[dataset_name][
+            split_preproc_key
+        ]
+    except KeyError:
+        for k in DATASET_NAME_TO_PREPROCESSING_FUNCTION.keys():
+            if "the-stack" in dataset_name.lower() and "the-stack" in k:
+                pre_proc_fn = DATASET_NAME_TO_PREPROCESSING_FUNCTION[k][
+                    split_preproc_key
+                ]
+
     base_dataset = base_dataset.map(
-        DATASET_NAME_TO_PREPROCESSING_FUNCTION[dataset_name][split_preproc_key](
-            maximum_raw_length
-        ),
+        pre_proc_fn(maximum_raw_length),
     )
 
     if "train" in split_preproc_key:
