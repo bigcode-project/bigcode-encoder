@@ -129,10 +129,20 @@ def get_dataset(
     """
     try:
         base_dataset = load_dataset(
-            dataset_name, use_auth_token=True, cache_dir=path_to_cache
+            dataset_name,
+            use_auth_token=True,
+            cache_dir=path_to_cache,
+            data_files="sample.parquet",
         )[split]
     except FileNotFoundError:
-        base_dataset = load_from_disk(path_to_cache)
+        try:
+            base_dataset = load_dataset(
+                dataset_name,
+                use_auth_token=True,
+                cache_dir=path_to_cache,
+            )[split]
+        except FileNotFoundError:
+            base_dataset = load_from_disk(path_to_cache)
 
     if force_preprocess:
         base_dataset.cleanup_cache_files()
