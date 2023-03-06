@@ -6,6 +6,7 @@ from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 from src.preprocessing_utils import (
     perturb_tokens,
+    get_special_tokens_mask,
     get_pooling_mask,
     pre_process_codesearchnet_train,
     pre_process_codesearchnet_test,
@@ -127,7 +128,9 @@ def get_dataset(
         dataset: An indexed dataset object.
     """
     try:
-        base_dataset = load_dataset(dataset_name, use_auth_token=True, cache_dir=path_to_cache)[split]
+        base_dataset = load_dataset(
+            dataset_name, use_auth_token=True, cache_dir=path_to_cache
+        )[split]
     except FileNotFoundError:
         base_dataset = load_from_disk(path_to_cache)
 
@@ -248,18 +251,24 @@ class TrainCollator:
             input_examples_encoding.attention_mask
         )  # Padding masks.
 
+        special_tokens_mask = get_special_tokens_mask(
+            self.tokenizer, input_examples_ids
+        )
+
         input_examples_ids, mlm_labels = perturb_tokens(
             input_examples_ids,
-            input_examples_att_mask,
+            special_tokens_mask,
             self.mlm_masking_probability,
             self.mask_token_id,
+            len(self.tokenizer),
         )  # Dynamically perturbs input tokens and generates corresponding mlm labels.
 
         positive_examples_ids, positive_mlm_labels = perturb_tokens(
             input_examples_ids,
-            input_examples_att_mask,
+            special_tokens_mask,
             self.contrastive_masking_probability,
             self.mask_token_id,
+            len(self.tokenizer),
         )  # Positve examples are independently perturbed versions of the source, used for the contrastive loss.
 
         input_ids = torch.cat([input_examples_ids, positive_examples_ids], 0)

@@ -1,46 +1,83 @@
 from typing import Dict, List, Union
-from matplotlib import docstring
 import torch
 from src.constants import PADDING_ID_FOR_LABELS
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
 def perturb_tokens(
     input_ids: torch.Tensor,
-    att_masks: torch.Tensor,
+    special_tokens_masks: torch.Tensor,
     masking_fraction: float,
     masking_token_id: Union[int, float],
+    vocab_size: Union[int, float],
 ) -> List[torch.Tensor]:
     """Perturb tokens in preparation for MLM loss computation.
+    Adapted from:
+    https://github.com/huggingface/transformers/blob/d4306daea1f68d8e854b7b3b127878a5fbd53489/src/transformers/data/data_collator.py#L750
 
     Args:
         input_ids (torch.Tensor): Batch of input tokens IDs.
-        att_masks (torch.Tensor): Input padding masks.
+        special_tokens_masks (torch.Tensor): Masks for special tokens that shouldn't be perturberd.
         masking_fraction (float): Probability of masking ou a given token.
         masking_token_id (Union[int, float]): Token id for masks.
+        vocab_size (Union[int, float]): vocab_size used to replace inputs for random words.
 
     Returns:
         List[torch.Tensor]: Perturbed ids along with label ids.
     """
-    modified_att_masks = att_masks.clone()
-    modified_att_masks[:, 0] = 0  # Don't mask the first token given by [CLS].
-    modified_att_masks[
-        torch.arange(att_masks.size(0), device=att_masks.device), att_masks.sum(1) - 1
-    ] = 0  # Don't mask the last token given by [SEP].
 
-    element_wise_bernoulli = torch.distributions.Bernoulli(
-        masking_fraction * modified_att_masks
-    )  # Independent Bernoulli random variables for each token.
+    perturbed_input_ids = input_ids.clone()
+    labels = input_ids.clone()
+    # We sample a few tokens in each sequence for MLM training (with probability masking_fraction)
+    probability_matrix = torch.full(labels.shape, masking_fraction)
 
-    mask_ids = torch.ones_like(input_ids) * masking_token_id
-    padding_ids = torch.ones_like(input_ids) * PADDING_ID_FOR_LABELS
-    perturbation_idx = element_wise_bernoulli.sample().bool()  # Sample random mask.
-    mlm_labels = torch.where(perturbation_idx, input_ids.clone(), mask_ids)
-    mlm_labels = torch.where(
-        att_masks == 0, padding_ids, mlm_labels
-    )  # Places padding labels.
-    perturbed_ids = torch.where(perturbation_idx, mask_ids, input_ids.clone())
+    probability_matrix.masked_fill_(special_tokens_masks, value=0.0)
+    masked_indices = torch.bernoulli(probability_matrix).bool()
+    labels[
+        ~masked_indices
+    ] = PADDING_ID_FOR_LABELS  # We only compute loss on masked tokens
 
-    return perturbed_ids, mlm_labels
+    # 80% of the time, we replace masked input tokens with masking_token_id
+    indices_replaced = (
+        torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+    )
+    perturbed_input_ids[indices_replaced] = masking_token_id
+
+    # 10% of the time, we replace masked input tokens with random word
+    indices_random = (
+        torch.bernoulli(torch.full(labels.shape, 0.5)).bool()
+        & masked_indices
+        & ~indices_replaced
+    )
+    random_words = torch.randint(vocab_size, labels.shape, dtype=torch.long)
+    perturbed_input_ids[indices_random] = random_words[indices_random]
+
+    # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+    return perturbed_input_ids, labels
+
+
+def get_special_tokens_mask(
+    tokenizer: PreTrainedTokenizerBase, token_ids: torch.Tensor
+) -> torch.Tensor:
+    """Get masks indicating the positions of special tokens in a batch of token ids.
+    Adapted from:
+    https://github.com/huggingface/transformers/blob/d4306daea1f68d8e854b7b3b127878a5fbd53489/src/transformers/data/data_collator.py#L759
+
+    Args:
+        tokenizer (PreTrainedTokenizerBase): Tokenizer used to gnerate encoding in token_ids.
+        token_ids (torch.Tensor): batch of token ids.
+
+    Returns:
+        torch.Tensor: Batch of masks with 1 wherever a special token appears and 0 otherwise.
+    """
+
+    special_tokens_mask = [
+        tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True)
+        for val in token_ids.tolist()
+    ]
+    special_tokens_mask = torch.tensor(special_tokens_mask, dtype=torch.bool)
+
+    return special_tokens_mask
 
 
 def truncate_sentences(

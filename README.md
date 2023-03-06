@@ -18,3 +18,4 @@ Exploration of BERT-like models trained on The Stack
 - ```--train_data_name``` can be used to use to set the training dataset.
 
 - Hyperparamaters can be changed in ```exp_configs.py```.
+  - The tokenizer to be used is treated as a hyperparameter and then must also be set in ```exp_configs.py```
