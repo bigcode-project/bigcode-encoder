@@ -69,25 +69,33 @@ class TempCoef(torch.nn.Module):
 
 
 def clip_contrastive_loss(
-    emb_1: torch.Tensor, emb_2: torch.Tensor, temperature_coef: TempCoef
+    emb_1: torch.Tensor,
+    emb_2: torch.Tensor,
+    temperature_coef: TempCoef,
+    local_loss: bool = False,
 ) -> torch.Tensor:
     """Computes contrastive CLIP-style loss.
 
     Args:
         emb_1 (torch.Tensor): Input embeddings.
         emb_2 (torch.Tensor): Embedding of positive pairs (perturbed inputs)
+        temperature_coef (TempCoef): Module wrapping trainable temperature parameter.
+        local_loss (bool, optional): If set, contrastive loss will only use data in current device. Defaults to False.
 
     Returns:
         torch.Tensor: Contrastive loss.
     """
 
-    # Gathers embeddings across devices.
-    emb_1_dist, emb_2_dist = _gpu_gather(
-        (
-            emb_1,
-            emb_2,
+    if local_loss:
+        emb_1_dist, emb_2_dist = emb_1, emb_2
+    else:
+        # Gathers embeddings across devices.
+        emb_1_dist, emb_2_dist = _gpu_gather(
+            (
+                emb_1,
+                emb_2,
+            )
         )
-    )
 
     # Compute cosine similarity matrix
     similarities = emb_1_dist @ emb_2_dist.T
@@ -100,6 +108,7 @@ def clip_contrastive_loss(
 
     # We use a cross-entropy criterion to increase the similarities between
     # matching representations of source and target
+    # We follow CLIP and apply the loss across columns and rows.
     sim_loss = 0.5 * (
         torch.nn.functional.cross_entropy(similarities, ce_labels)
         + torch.nn.functional.cross_entropy(similarities.T, ce_labels)

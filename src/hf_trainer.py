@@ -100,6 +100,7 @@ class CustomTrainer(Trainer):
                 normalized_source_embedding,
                 normalized_target_embedding,
                 temp_coef_fn,
+                model.local_contrastive_loss,
             )
 
             return contrastive_loss, {
@@ -136,6 +137,7 @@ class CustomTrainer(Trainer):
                 normalized_embedding[:pair_split_idx],
                 normalized_embedding[pair_split_idx:],
                 model.module.temperature_coef,
+                model.module.local_contrastive_loss,
             )
 
             loss = out.loss * model.module.loss_alpha + contrastive_loss * (
@@ -181,6 +183,8 @@ def get_encoder(exp_dict: dict) -> PreTrainedModel:
         encoder.projection_head = torch.nn.Identity()
 
     encoder.loss_alpha = exp_dict["alpha"]
+
+    encoder.local_contrastive_loss = exp_dict["local_contrastive_loss"]
 
     return encoder
 

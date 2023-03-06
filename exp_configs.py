@@ -6,6 +6,7 @@ BASE_CONFIG = {
     "initial_temperature_coef": 10.0,
     "use_projection": False,
     "alpha": 0.5,
+    "local_contrastive_loss": False,
     "base_lr": 5e-5,
     "scheduler_config": {
         "name": "LinearWarmupCosineAnnealingLR",
