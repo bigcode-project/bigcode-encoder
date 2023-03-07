@@ -41,6 +41,9 @@ def train(exp_dict, savedir, args):
     collate_fn = datasets_loader.Collator(
         tokenizer_path=exp_dict["tokenizer_path"],
         maximum_length=exp_dict["maximum_input_length"],
+        mlm_masking_probability=exp_dict["mlm_masking_probability"],
+        contrastive_masking_probability=exp_dict["contrastive_masking_probability"],
+        ignore_contrastive_loss_data=exp_dict["alpha"] == 1.0,
     )
 
     exp_dict["vocab_size"] = collate_fn.vocabulary_size

@@ -197,6 +197,7 @@ class TrainCollator:
         maximum_length: int,
         mlm_masking_probability: float,
         contrastive_masking_probability: float,
+        ignore_contrastive_loss_data: bool = False,
         **kwargs,
     ) -> None:
         """Creates instance of collator.
@@ -206,10 +207,12 @@ class TrainCollator:
             maximum_length (int): Truncating length of token sequences.
             mlm_masking_probability (float): Masking probability for MLM objective.
             contrastive_masking_probability (float): Masking probability for contrastive objective.
+            ignore_contrastive_loss_data (bool, optional): Do not add append positive pairs to batch. Defaults to False.
         """
         self.mlm_masking_probability = mlm_masking_probability
         self.contrastive_masking_probability = contrastive_masking_probability
         self.maximum_length = maximum_length
+        self.ignore_contrastive_loss_data = ignore_contrastive_loss_data
 
         self.tokenizer = prepare_tokenizer(
             AutoTokenizer.from_pretrained(tokenizer_path)
@@ -273,25 +276,34 @@ class TrainCollator:
             len(self.tokenizer),
         )  # Dynamically perturbs input tokens and generates corresponding mlm labels.
 
-        positive_examples_ids, positive_mlm_labels = perturb_tokens(
-            input_examples_ids,
-            special_tokens_mask,
-            self.contrastive_masking_probability,
-            self.mask_token_id,
-            len(self.tokenizer),
-        )  # Positve examples are independently perturbed versions of the source, used for the contrastive loss.
+        if not self.ignore_contrastive_loss_data:
+            positive_examples_ids, positive_mlm_labels = perturb_tokens(
+                input_examples_ids,
+                special_tokens_mask,
+                self.contrastive_masking_probability,
+                self.mask_token_id,
+                len(self.tokenizer),
+            )  # Positve examples are independently perturbed versions of the source, used for the contrastive loss.
 
-        input_ids = torch.cat([input_examples_ids, positive_examples_ids], 0)
-        attention_mask = torch.cat(
-            [input_examples_att_mask, input_examples_att_mask.clone()], 0
-        )
-        pooling_mask = get_pooling_mask(
-            input_ids, self.sep_token_id
-        )  # Pooling masks indicate the first [SEP] occurrence, used for seq embedding.
-        labels = torch.cat([mlm_labels, positive_mlm_labels], 0)
-        next_sentence_label = torch.cat(
-            [seq_relationship_labels, seq_relationship_labels.clone()], 0
-        )
+            input_ids = torch.cat([input_examples_ids, positive_examples_ids], 0)
+            attention_mask = torch.cat(
+                [input_examples_att_mask, input_examples_att_mask.clone()], 0
+            )
+            pooling_mask = get_pooling_mask(
+                input_ids, self.sep_token_id
+            )  # Pooling masks indicate the first [SEP] occurrence, used for seq embedding.
+            labels = torch.cat([mlm_labels, positive_mlm_labels], 0)
+            next_sentence_label = torch.cat(
+                [seq_relationship_labels, seq_relationship_labels.clone()], 0
+            )
+        else:
+            input_ids = input_examples_ids
+            attention_mask = input_examples_att_mask
+            pooling_mask = get_pooling_mask(
+                input_ids, self.sep_token_id
+            )  # Pooling masks indicate the first [SEP] occurrence, used for seq embedding.
+            labels = mlm_labels
+            next_sentence_label = seq_relationship_labels
 
         return input_ids, attention_mask, pooling_mask, labels, next_sentence_label
 
@@ -365,6 +377,7 @@ class Collator:
         maximum_length: int,
         mlm_masking_probability: float = 0.5,
         contrastive_masking_probability: float = 0.5,
+        ignore_contrastive_loss_data: bool = False,
     ) -> None:
         """Creates instance of collator.
 
@@ -373,12 +386,14 @@ class Collator:
             maximum_length (int): Truncating length of token sequences.
             mlm_masking_probability (float, optional): Masking probability for MLM objective. Defaults to 0.5.
             contrastive_masking_probability (float, optional): Masking probability for contrastive objective. Defaults to 0.5.
+            ignore_contrastive_loss_data (bool, optional): Do not add append positive pairs to batch. Defaults to False.
         """
         self.train_collator = TrainCollator(
             tokenizer_path=tokenizer_path,
             maximum_length=maximum_length,
             mlm_masking_probability=mlm_masking_probability,
             contrastive_masking_probability=contrastive_masking_probability,
+            ignore_contrastive_loss_data=ignore_contrastive_loss_data,
         )
         self.test_collator = TestCollator(
             tokenizer_path=tokenizer_path,

@@ -123,32 +123,34 @@ class CustomTrainer(Trainer):
                 labels=labels,
                 next_sentence_label=next_sentence_label,
             )
-            embedding = out.hidden_states[-1]
-            embedding = model.module.projection_head(embedding)
-            normalized_embedding = pool_and_normalize(
-                embedding,
-                pooling_mask,
-            )
 
-            # Batches are such that the first and second halves are independently perturbed versions
-            # of the same source data and are treated as positive pairs.
-            pair_split_idx = embedding.size(0) // 2
-            contrastive_loss = clip_contrastive_loss(
-                normalized_embedding[:pair_split_idx],
-                normalized_embedding[pair_split_idx:],
-                model.module.temperature_coef,
-                model.module.local_contrastive_loss,
-            )
+            if model.module.loss_alpha < 1.0:
+                embedding = out.hidden_states[-1]
+                embedding = model.module.projection_head(embedding)
+                normalized_embedding = pool_and_normalize(
+                    embedding,
+                    pooling_mask,
+                )
 
-            loss = out.loss * model.module.loss_alpha + contrastive_loss * (
-                1 - model.module.loss_alpha
-            )
+                # Batches are such that the first and second halves are independently perturbed versions
+                # of the same source data and are treated as positive pairs.
+                pair_split_idx = embedding.size(0) // 2
+                contrastive_loss = clip_contrastive_loss(
+                    normalized_embedding[:pair_split_idx],
+                    normalized_embedding[pair_split_idx:],
+                    model.module.temperature_coef,
+                    model.module.local_contrastive_loss,
+                )
+                loss = out.loss * model.module.loss_alpha + contrastive_loss * (
+                    1 - model.module.loss_alpha
+                )
+            else:
+                loss = out.loss
 
             return loss
 
 
 def get_encoder(exp_dict: dict) -> PreTrainedModel:
-
     """get encoder given config exp_dict.
 
     Args:
@@ -168,9 +170,12 @@ def get_encoder(exp_dict: dict) -> PreTrainedModel:
 
     encoder = BertForPreTraining(encoder_config)
 
-    encoder.temperature_coef = TempCoef(
-        initial_value=exp_dict["initial_temperature_coef"]
-    )
+    if exp_dict["alpha"] < 1.0:
+        encoder.temperature_coef = TempCoef(
+            initial_value=exp_dict["initial_temperature_coef"]
+        )
+    else:
+        encoder.temperature_coef = torch.nn.Identity()
 
     if exp_dict["use_projection"]:
         feature_dim = encoder.config.hidden_size

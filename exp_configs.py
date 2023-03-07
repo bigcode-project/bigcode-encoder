@@ -5,7 +5,7 @@ BASE_CONFIG = {
     "skip_steps": 3,  # Training steps to accumulate gradients through prior to updating params.
     "initial_temperature_coef": 10.0,
     "use_projection": False,
-    "alpha": 0.5,
+    "alpha": 0.5,  # losses weigths in [0.0, 1.0]. Set to 1.0 to turn off contrastive loss. training_loss = alpha * mlm_loss + (1-alpha) * contrastive_loss
     "local_contrastive_loss": False,
     "base_lr": 5e-5,
     "scheduler_config": {
