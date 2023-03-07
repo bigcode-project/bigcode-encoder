@@ -15,12 +15,14 @@ BASE_CONFIG = {
     "adam_epsilon": 1e-08,
     "weight_decay": 1e-2,
     "max_grad_norm": 1.0,
+    "fp16": True,
+    "bf16": False,
     "n_workers": 2,
     "tokenizer_path": "bigcode/tokenizer-the-stack-march-sample",
     "mlm_masking_probability": 0.15,
     "contrastive_masking_probability": 0.3,
     "maximum_input_length": 384 * 2,
-    "maximum_raw_length": 10000,
+    "maximum_raw_length": 10_000,
 }
 
 

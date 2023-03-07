@@ -401,6 +401,7 @@ class Collator:
         )
 
         self.vocabulary_size = len(self.train_collator.tokenizer.vocab)
+        self.pad_token_id = self.train_collator.pad_token_id
 
     def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
         """Maps list of pairs of examples to batches of token ids, masks, and labels used for training.

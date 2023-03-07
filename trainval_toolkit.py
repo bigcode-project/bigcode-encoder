@@ -47,6 +47,7 @@ def train(exp_dict, savedir, args):
     )
 
     exp_dict["vocab_size"] = collate_fn.vocabulary_size
+    exp_dict["pad_token_id"] = collate_fn.pad_token_id
 
     trainer = hf_trainer.get_trainer(
         exp_dict=exp_dict,
