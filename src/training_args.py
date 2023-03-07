@@ -37,7 +37,7 @@ def parse_args():
         "--python_binary", default="python", help="path to your python executable"
     )
     parser.add_argument(
-        "--epochs", default=100, type=int, help="Number of epochs to train."
+        "--steps", default=500_000, type=int, help="Number of training steps."
     )
     parser.add_argument(
         "--log_every",

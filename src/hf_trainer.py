@@ -1,8 +1,6 @@
 import os
 import torch
 from torch.utils.data.dataset import Dataset
-from torch.optim.lr_scheduler import *
-from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 import transformers
 from transformers import Trainer
 from transformers import AutoConfig, BertForPreTraining
@@ -13,7 +11,6 @@ from transformers.modeling_utils import PreTrainedModel
 
 from src.utils import (
     TempCoef,
-    get_params_groups,
     pool_and_normalize,
     clip_contrastive_loss,
     retrieval_eval,
@@ -151,6 +148,7 @@ class CustomTrainer(Trainer):
 
 
 def get_encoder(exp_dict: dict) -> PreTrainedModel:
+
     """get encoder given config exp_dict.
 
     Args:
@@ -197,7 +195,7 @@ def get_encoder(exp_dict: dict) -> PreTrainedModel:
 def get_trainer(
     exp_dict: dict,
     savedir: str,
-    epochs: int,
+    max_steps: int,
     train_dataset: Dataset,
     valid_dataset: Dataset,
     collate_fn: Collator,
@@ -210,7 +208,7 @@ def get_trainer(
     Args:
         exp_dict (dict): Config dictionary.
         savedir (str): Output path.
-        epochs (int): Maximum number of training epochs.
+        max_steps (int): Maximum number of training steps.
         train_dataset (Dataset): Training data.
         valid_dataset (Dataset): Evaluation data.
         collate_fn (Collator): Collator.
@@ -227,9 +225,16 @@ def get_trainer(
         local_rank=local_rank,
         per_device_train_batch_size=exp_dict["train_batch_size"],
         per_device_eval_batch_size=exp_dict["test_batch_size"],
-        num_train_epochs=epochs,
+        max_steps=max_steps,
+        learning_rate=exp_dict["learning_rate"],
+        lr_scheduler_type=exp_dict["lr_scheduler_type"],
+        warmup_steps=exp_dict["warmup_steps"],
+        adam_beta1=exp_dict["adam_beta1"],
+        adam_beta2=exp_dict["adam_beta2"],
+        adam_epsilon=exp_dict["adam_epsilon"],
+        weight_decay=exp_dict["weight_decay"],
+        max_grad_norm=exp_dict["max_grad_norm"],
         gradient_accumulation_steps=exp_dict["skip_steps"],
-        max_grad_norm=exp_dict["grad_clip"],
         remove_unused_columns=False,
         label_names=[],
         fp16=True,
@@ -237,30 +242,16 @@ def get_trainer(
         logging_dir=os.path.join(savedir, "logs"),
         logging_strategy="steps",
         logging_steps=log_every,
-        save_strategy="epoch",
-        evaluation_strategy="epoch",
+        save_strategy="steps",
+        evaluation_strategy="steps",
+        report_to="wandb",
     )
 
     encoder = get_encoder(exp_dict=exp_dict)
 
-    opt = torch.optim.AdamW(
-        get_params_groups(
-            encoder,
-            exp_dict["l2"],
-        ),
-        lr=exp_dict["base_lr"],
-        betas=exp_dict["betas"],
-        amsgrad=exp_dict["amsgrad"],
-    )
-
-    lr_scheduler = globals()[exp_dict["scheduler_config"]["name"]](
-        opt, **exp_dict["scheduler_config"]["kwargs"]
-    )
-
     trainer = CustomTrainer(
         model=encoder,
         args=training_args,
-        optimizers=(opt, lr_scheduler),
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
         compute_metrics=compute_metrics,

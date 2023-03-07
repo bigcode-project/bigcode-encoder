@@ -1,35 +1,6 @@
-from typing import Dict, List, Union
+from typing import List
 import torch
 from accelerate.utils.operations import _gpu_gather
-
-
-def get_params_groups(
-    model: torch.nn.Module, wd: float
-) -> List[Dict[str, Union[List[torch.nn.Parameter], float]]]:
-    """Splits model's parameters into separate groups where no weight decay is applied.
-
-    Args:
-        model (torch.nn.Module): Model.
-        wd (float): Weight decay parameter.
-
-    Returns:
-        List[Dict[str, Union[List[torch.nn.Parameter], float]]]: List of dicts containing parameters and weigh decay coef.
-    """
-    # Adapted from https://github.com/facebookresearch/dino/blob/main/utils.py
-    regularized = []
-    not_regularized = []
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        # we do not regularize biases nor Norm parameters
-        if name.endswith(".bias") or len(param.shape) == 1:
-            not_regularized.append(param)
-        else:
-            regularized.append(param)
-    return [
-        {"params": regularized, "weight_decay": wd},
-        {"params": not_regularized, "weight_decay": 0.0},
-    ]
 
 
 class TempCoef(torch.nn.Module):
@@ -188,29 +159,3 @@ def retrieval_eval(
     mrr = (1 / ranks).mean()
 
     return r_at_1, r_at_5, mrr
-
-
-def modify_optimizer_state_dict(state):
-
-    modified_state = {"param_groups": state["param_groups"], "state": {}}
-
-    for el in state["state"]:
-        state_component = {}
-        for k, v in state["state"][el].items():
-            if isinstance(v, torch.Tensor):
-                state_component[k] = v.cpu()
-            else:
-                state_component[k] = v
-
-        modified_state["state"][el] = state_component
-
-    return modified_state
-
-
-def modify_model_state_dict(state):
-
-    modified_state = state.__class__()
-    for el in state:
-        modified_state[el] = state[el].cpu()
-
-    return modified_state

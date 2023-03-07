@@ -51,7 +51,7 @@ def train(exp_dict, savedir, args):
     trainer = hf_trainer.get_trainer(
         exp_dict=exp_dict,
         savedir=savedir,
-        epochs=args.epochs,
+        max_steps=args.steps,
         train_dataset=train_data,
         valid_dataset=gfg_test_data,
         collate_fn=collate_fn,
