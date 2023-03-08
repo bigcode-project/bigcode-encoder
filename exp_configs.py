@@ -12,7 +12,7 @@ BASE_CONFIG = {
     "warmup_steps": 24_000,
     "adam_beta1": 0.9,
     "adam_beta2": 0.98,
-    "adam_epsilon": 1e-08,
+    "adam_epsilon": 1e-6,
     "weight_decay": 1e-2,
     "max_grad_norm": 1.0,
     "fp16": True,
