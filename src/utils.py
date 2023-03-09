@@ -39,6 +39,39 @@ class TempCoef(torch.nn.Module):
         return self.temp_coef.data.item()
 
 
+def gather_embeddings(
+    embedding_1: torch.Tensor, embedding_2: torch.Tensor
+) -> List[torch.Tensor]:
+    """Gathers embeddings across devices in distributed settings.
+
+    Args:
+        embedding_1 (torch.Tensor): First batch of embeddings. Expected shape: [n, d]
+        embedding_2 (torch.Tensor): Second batch of embeddings. Expected shape: [n, d]
+
+    Returns:
+        torch.Tensor: List of tensors concatenated from all devices, each with shape [n*NUM_DEVICES, d].
+    """
+
+    # Creates extra dimension for concatenating batches into single tensor.
+    embedding_1 = embedding_1.unsqueeze(1)
+    embedding_2 = embedding_2.unsqueeze(1)
+
+    embedding = torch.cat(
+        (
+            embedding_1,
+            embedding_2,
+        ),
+        1,
+    )
+
+    embedding_dist = _gpu_gather(embedding)
+
+    embedding_1_dist = embedding_dist[:, 0, :]
+    embedding_2_dist = embedding_dist[:, 1, :]
+
+    return embedding_1_dist, embedding_2_dist
+
+
 def clip_contrastive_loss(
     emb_1: torch.Tensor,
     emb_2: torch.Tensor,
@@ -61,12 +94,7 @@ def clip_contrastive_loss(
         emb_1_dist, emb_2_dist = emb_1, emb_2
     else:
         # Gathers embeddings across devices.
-        emb_1_dist, emb_2_dist = _gpu_gather(
-            (
-                emb_1,
-                emb_2,
-            )
-        )
+        emb_1_dist, emb_2_dist = gather_embeddings(emb_1, emb_2)
 
     # Compute cosine similarity matrix
     similarities = emb_1_dist @ emb_2_dist.T

@@ -227,7 +227,7 @@ class pre_process_gfg:
 
 class pre_process_the_stack:
     def __init__(self, maximum_length: int) -> None:
-        """Pre process Python-Java Geeks4Geeks data by truncating and pairing code snippets.
+        """Pre process The Stack data by truncating and splitting code files.
 
         Args:
             maximum_length (int): Max length of code snippets.
