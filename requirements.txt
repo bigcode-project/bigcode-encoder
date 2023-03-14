@@ -8,6 +8,7 @@ datasets==2.10.1
 sentencepiece==0.1.97
 transformers==4.21.1
 accelerate==0.16.0
+mteb==1.0.1
 wandb
 huggingface-cli
 haven-ai @ git+https://github.com/haven-ai/haven-ai@00fe4e3a10bfe09fef361836b8fcfcffcecd3451
