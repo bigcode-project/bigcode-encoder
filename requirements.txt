@@ -8,6 +8,7 @@ datasets==2.10.1
 sentencepiece==0.1.97
 transformers==4.21.1
 accelerate==0.16.0
+beir==1.0.1
 mteb==1.0.1
 wandb
 huggingface-cli
