@@ -178,7 +178,13 @@ def get_dataset(
         return PairedDataset(base_dataset)
 
 
-def prepare_tokenizer(tokenizer):
+def prepare_tokenizer(tokenizer_path):
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    except OSError:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_auth_token=True)
+
     tokenizer.add_special_tokens({"pad_token": PAD_TOKEN})
     tokenizer.add_special_tokens({"sep_token": SEPARATOR_TOKEN})
     tokenizer.add_special_tokens({"cls_token": CLS_TOKEN})
@@ -214,9 +220,7 @@ class TrainCollator:
         self.maximum_length = maximum_length
         self.ignore_contrastive_loss_data = ignore_contrastive_loss_data
 
-        self.tokenizer = prepare_tokenizer(
-            AutoTokenizer.from_pretrained(tokenizer_path)
-        )
+        self.tokenizer = prepare_tokenizer(tokenizer_path)
 
         self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
         self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]
@@ -322,9 +326,7 @@ class TestCollator:
         """
         self.maximum_length = maximum_length
 
-        self.tokenizer = prepare_tokenizer(
-            AutoTokenizer.from_pretrained(tokenizer_path)
-        )
+        self.tokenizer = prepare_tokenizer(tokenizer_path)
 
         self.sep_token_id = self.tokenizer.get_vocab()[self.tokenizer.sep_token]
         self.pad_token_id = self.tokenizer.get_vocab()[self.tokenizer.pad_token]

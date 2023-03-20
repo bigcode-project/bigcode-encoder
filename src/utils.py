@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 import torch
 from accelerate.utils.operations import _gpu_gather
 
@@ -16,13 +16,13 @@ class TempCoef(torch.nn.Module):
         self.temp_coef = torch.nn.Parameter(torch.Tensor([initial_value]))
 
     def forward(self, logits_matrix: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the module: Divide input tensor by the temperature value.
+        """Forward pass of the module: Multiply input tensor by the temperature value.
 
         Args:
             logits_matrix (torch.Tensor): Input tensor
 
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: Logits matrix multiplied by temp.
         """
         # Apply learnable temperature factor on similarities
         # Clamping after op to avoid numerical instabilities
@@ -36,7 +36,7 @@ class TempCoef(torch.nn.Module):
         Returns:
             float: temperature value.
         """
-        return self.temp_coef.data.item()
+        return self.temp_coef.data.detach()
 
 
 def gather_embeddings(
@@ -117,24 +117,29 @@ def clip_contrastive_loss(
 
 
 def pool_and_normalize(
-    features_sequence: torch.Tensor, attention_masks: torch.Tensor
-) -> torch.Tensor:
+    features_sequence: torch.Tensor,
+    attention_masks: torch.Tensor,
+    return_norms: bool = False,
+) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Temporal ooling of sequences of vectors and projection onto the unit sphere.
 
     Args:
         features_sequence (torch.Tensor): Inpute features with shape [B, T, F].
         attention_masks (torch.Tensor): Pooling masks with shape [B, T, F].
+        return_norms (bool, optional): Whether to additionally return the norms. Defaults to False.
 
     Returns:
-        torch.Tensor: Pooled and normalized vectors with shape [B, F].
+        Union[torch.Tensor, List[torch.Tensor]]: Pooled and normalized vectors with shape [B, F].
     """
 
     pooled_embeddings = pooling(features_sequence, attention_masks)
-    pooled_normalized_embeddings = (
-        pooled_embeddings / pooled_embeddings.norm(dim=1)[:, None]
-    )
+    embedding_norms = pooled_embeddings.norm(dim=1)
+    pooled_normalized_embeddings = pooled_embeddings / embedding_norms[:, None]
 
-    return pooled_normalized_embeddings
+    if return_norms:
+        return pooled_normalized_embeddings, embedding_norms
+    else:
+        return pooled_normalized_embeddings
 
 
 def pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:

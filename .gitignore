@@ -132,3 +132,7 @@ dmypy.json
 wandb
 wandb-debug.log
 wandb/
+
+# hf
+cache-
+.lock

@@ -24,7 +24,8 @@ def compute_metrics(eval_pred: PredictionOutput) -> Dict[str, float]:
     Args:
         eval_pred (PredictionOutput): Outputs from Trainer.predict(). The field
         'predictions' should contain source and target embeddings in the first and
-        second indices respectively.
+        second indices respectively. Embedding norms are expected in index 2, and the value
+        of the temperature coefficient in the final index.
 
     Returns:
         Dict[str, float]: Retrieval performance metrics.
@@ -35,11 +36,22 @@ def compute_metrics(eval_pred: PredictionOutput) -> Dict[str, float]:
         torch.from_numpy(eval_pred.predictions[1]),
     )
 
-    return {
+    embedding_norms = eval_pred.predictions[2]
+
+    temp_coef = eval_pred.predictions[-1]
+
+    metrics = {
         "R@1": recall_at_1.item(),
         "R@5": recall_at_5.item(),
         "MRR": mean_reciprocal_rank.item(),
+        "embedding_norms": embedding_norms,
+        "min_embedding_norm": embedding_norms.min().item(),
     }
+
+    if temp_coef is not None:
+        metrics["temp_coef"] = temp_coef.mean().item()
+
+    return metrics
 
 
 class CustomTrainer(Trainer):
@@ -78,9 +90,8 @@ class CustomTrainer(Trainer):
 
             source_target_embedding = projection_fn(source_target_embedding)
 
-            normalized_source_target_embedding = pool_and_normalize(
-                source_target_embedding,
-                source_target_att_mask,
+            normalized_source_target_embedding, embedding_norms = pool_and_normalize(
+                source_target_embedding, source_target_att_mask, return_norms=True
             )
 
             # Batches are such that the first and second halves are independently perturbed versions
@@ -100,9 +111,16 @@ class CustomTrainer(Trainer):
                 model.local_contrastive_loss,
             )
 
+            try:
+                temp_coef = temp_coef_fn.get_temp_coef()
+            except AttributeError:
+                temp_coef = None
+
             return contrastive_loss, {
                 "source_embedding": normalized_source_embedding,
                 "target_embedding": normalized_target_embedding,
+                "embedding_norms": embedding_norms,  # Used only for logging
+                "temp_coef": temp_coef,  # Used only for logging
             }
 
         else:  # Training branch.
