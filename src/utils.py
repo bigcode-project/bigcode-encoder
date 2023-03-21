@@ -134,7 +134,12 @@ def pool_and_normalize(
 
     pooled_embeddings = pooling(features_sequence, attention_masks)
     embedding_norms = pooled_embeddings.norm(dim=1)
-    pooled_normalized_embeddings = pooled_embeddings / embedding_norms[:, None]
+
+    normalizing_factor = torch.where(  # Only normalize embeddings with norm > 1.0.
+        embedding_norms > 1.0, embedding_norms, torch.ones_like(embedding_norms)
+    )
+
+    pooled_normalized_embeddings = pooled_embeddings / normalizing_factor[:, None]
 
     if return_norms:
         return pooled_normalized_embeddings, embedding_norms

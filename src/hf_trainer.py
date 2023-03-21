@@ -4,7 +4,7 @@ from torch.utils.data.dataset import Dataset
 import transformers
 from transformers import Trainer
 from transformers import AutoConfig, BertForPreTraining
-from typing import Tuple, Union, Dict
+from typing import Tuple, Union, Dict, List
 
 from transformers.trainer_utils import PredictionOutput
 from transformers.modeling_utils import PreTrainedModel
@@ -60,14 +60,14 @@ class CustomTrainer(Trainer):
     def compute_loss(
         self,
         model: PreTrainedModel,
-        inputs: Dict[float, torch.Tensor],
+        inputs: List[torch.Tensor],
         return_outputs: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[float, torch.Tensor]]]:
         """Compute training loss. If return outputs is True, source/target embeddings are also returned.
 
         Args:
             model (PreTrainedModel): Training model
-            inputs (Dict[float, torch.Tensor]): Inputs dict.
+            inputs (List[torch.Tensor]): Inputs dict.
             return_outputs (bool, optional): Whether to return outputs for evaluation. Defaults to False.
 
         Returns:

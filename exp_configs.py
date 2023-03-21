@@ -3,7 +3,7 @@ BASE_CONFIG = {
     "train_batch_size": 64,
     "test_batch_size": 64,
     "skip_steps": 3,  # Training steps to accumulate gradients through prior to updating params.
-    "initial_temperature_coef": 10.0,
+    "initial_temperature_coef": 1.0725,  # Matches initial value in clip.
     "use_projection": False,
     "alpha": 0.5,  # losses weigths in [0.0, 1.0]. Set to 1.0 to turn off contrastive loss. training_loss = alpha * mlm_loss + (1-alpha) * contrastive_loss
     "local_contrastive_loss": False,
