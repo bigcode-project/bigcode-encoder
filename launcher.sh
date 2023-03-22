@@ -11,7 +11,7 @@ NSTEPS=100_000
 
 torchrun --nproc_per_node $NGPUS \
 trainval.py \
--e base \
+-e mlm \
 --steps $NSTEPS \
 -sb $PATH_TO_LOG \
 --train_data_name $TRAIN_DATA_NAME \
