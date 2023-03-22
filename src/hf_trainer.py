@@ -44,7 +44,7 @@ def compute_metrics(eval_pred: PredictionOutput) -> Dict[str, float]:
         "R@1": recall_at_1.item(),
         "R@5": recall_at_5.item(),
         "MRR": mean_reciprocal_rank.item(),
-        "embedding_norms": embedding_norms,
+        "embedding_norms": [norm for norm in embedding_norms],
         "min_embedding_norm": embedding_norms.min().item(),
     }
 
@@ -263,6 +263,7 @@ def get_trainer(
         logging_strategy="steps",
         logging_steps=log_every,
         save_strategy="steps",
+        save_steps=log_every,
         evaluation_strategy="steps",
         report_to="wandb",
     )
