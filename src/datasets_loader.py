@@ -132,8 +132,8 @@ def get_dataset(
             dataset_name,
             use_auth_token=True,
             cache_dir=path_to_cache,
-            data_files="sample.parquet",
-        )[split]
+            split=split
+        )
     except FileNotFoundError:
         try:
             base_dataset = load_dataset(
@@ -169,8 +169,11 @@ def get_dataset(
                 ]
 
     base_dataset = base_dataset.map(
-        pre_proc_fn(maximum_raw_length),
+        pre_proc_fn(maximum_raw_length), num_proc=96
     )
+
+    base_dataset = base_dataset.shuffle(seed=42)
+
 
     if "train" in split_preproc_key:
         return RandomlyPairedDataset(base_dataset)
