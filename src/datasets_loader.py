@@ -129,10 +129,7 @@ def get_dataset(
     """
     try:
         base_dataset = load_dataset(
-            dataset_name,
-            use_auth_token=True,
-            cache_dir=path_to_cache,
-            split=split
+            dataset_name, use_auth_token=True, cache_dir=path_to_cache, split=split
         )
     except FileNotFoundError:
         try:
@@ -168,12 +165,9 @@ def get_dataset(
                     split_preproc_key
                 ]
 
-    base_dataset = base_dataset.map(
-        pre_proc_fn(maximum_raw_length), num_proc=96
-    )
+    base_dataset = base_dataset.map(pre_proc_fn(maximum_raw_length), num_proc=96)
 
     base_dataset = base_dataset.shuffle(seed=42)
-
 
     if "train" in split_preproc_key:
         return RandomlyPairedDataset(base_dataset)
