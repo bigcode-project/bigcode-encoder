@@ -31,18 +31,18 @@ MODEL_CONFIGS = {
         "mlm_masking_probability": 0.15,
     },
     "contrastive_local": {
-        "alpha": 0.5,
+        "alpha": 0.4,
         "initial_temperature_coef": 1.0725,  # Matches initial value in clip.
         "local_contrastive_loss": True,
         "mlm_masking_probability": 0.15,
-        "contrastive_masking_probability": 0.3,
+        "contrastive_masking_probability": 0.2,
     },
     "contrastive_global": {
-        "alpha": 0.5,
+        "alpha": 0.4,
         "initial_temperature_coef": 1.0725,  # Matches initial value in clip.
         "local_contrastive_loss": False,
         "mlm_masking_probability": 0.15,
-        "contrastive_masking_probability": 0.3,
+        "contrastive_masking_probability": 0.2,
     },
 }
 

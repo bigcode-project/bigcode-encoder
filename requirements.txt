@@ -1,15 +1,16 @@
 --find-links https://download.pytorch.org/whl/cu117
-torch==1.13.1+cu117
-numpy==1.22.4
+torch==2.0.0+cu117
+numpy==1.24.2
 matplotlib==3.4.3
-sklearn==1.1.2
-pandas==1.4.3
+scikit-learn==1.2.2
+pandas==1.5.3
 datasets==2.10.1
 sentencepiece==0.1.97
-transformers==4.21.1
-accelerate==0.16.0
+transformers==4.27.2
+accelerate==0.17.1
 beir==1.0.1
 mteb==1.0.1
+seaborn
 wandb
 huggingface-cli
-haven-ai @ git+https://github.com/haven-ai/haven-ai@00fe4e3a10bfe09fef361836b8fcfcffcecd3451
+haven-ai

@@ -1,6 +1,6 @@
 from typing import List, Union
 import torch
-from accelerate.utils.operations import _gpu_gather
+from src.distributed_utils import all_gather
 
 
 class TempCoef(torch.nn.Module):
@@ -64,7 +64,8 @@ def gather_embeddings(
         1,
     )
 
-    embedding_dist = _gpu_gather(embedding)
+    # Gather embeddings across devices
+    embedding_dist = all_gather(embedding)
 
     embedding_1_dist = embedding_dist[:, 0, :]
     embedding_2_dist = embedding_dist[:, 1, :]
@@ -96,9 +97,10 @@ def clip_contrastive_loss(
         # Gathers embeddings across devices.
         emb_1_dist, emb_2_dist = gather_embeddings(emb_1, emb_2)
 
-    # Compute cosine similarity matrix
+    # Compute similarity matrix
     similarities = emb_1_dist @ emb_2_dist.T
 
+    # Multiply similarity matrix by temperature
     similarities = temperature_coef(similarities)
 
     # Matching representations of positive pairs assumed to be located at the main
