@@ -12,8 +12,8 @@ NSTEPS=100_000
 torchrun --nproc_per_node $NGPUS \
 trainval.py \
 -e mlm \
---wandb-entity-name jbmf \
---wandb-project-name tf-encoder \
+--wandb-entity-name bigcode \
+--wandb-project-name tf_encoder \
 --wandb-run-name mlm \
 --wandb-log-gradients false \
 --steps $NSTEPS \
