@@ -2,7 +2,11 @@ from typing import List, Dict, Union
 import torch
 from torch.utils.data import Dataset
 import datasets
+
+# Workaround toolkit misreporting available disk space.
+datasets.builder.has_sufficient_disk_space = lambda needed_bytes, directory=".": True
 from datasets import load_dataset, load_from_disk
+from datasets.builder import DatasetBuildError
 from transformers import AutoTokenizer
 from src.preprocessing_utils import (
     perturb_tokens,
@@ -129,23 +133,31 @@ def get_dataset(
     """
     try:
         base_dataset = load_dataset(
-            dataset_name, use_auth_token=True, cache_dir=path_to_cache, split=split
+            dataset_name,
+            use_auth_token=True,
+            cache_dir=path_to_cache,
+            split=split,
+        )
+    except DatasetBuildError:
+        # Try to specify data files. Specific for The Stack.
+        base_dataset = load_dataset(
+            dataset_name,
+            use_auth_token=True,
+            cache_dir=path_to_cache,
+            data_files="sample.parquet",
+            split=split,
         )
     except FileNotFoundError:
-        try:
-            base_dataset = load_dataset(
-                dataset_name,
-                use_auth_token=True,
-                cache_dir=path_to_cache,
-            )[split]
-        except FileNotFoundError:
-            base_dataset = load_from_disk(path_to_cache)
+        # Try to load from disk if above failed.
+        base_dataset = load_from_disk(path_to_cache)
 
     if force_preprocess:
         base_dataset.cleanup_cache_files()
 
+    base_dataset = base_dataset.shuffle(seed=42)
+
     if maximum_row_cout is not None:
-        base_dataset = base_dataset.shuffle(seed=42).select(
+        base_dataset = base_dataset.select(
             range(min(len(base_dataset), maximum_row_cout))
         )
 
