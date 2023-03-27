@@ -1,4 +1,5 @@
 import os
+import wandb
 import torch
 from torch.utils.data.dataset import Dataset
 import transformers
@@ -16,6 +17,9 @@ from src.utils import (
     retrieval_eval,
 )
 from src.datasets_loader import Collator
+from src.logging_callback import LoggingCallback
+
+from functools import partial
 
 
 def compute_metrics(eval_pred: PredictionOutput) -> Dict[str, float]:
@@ -221,6 +225,10 @@ def get_trainer(
     log_every: int = 100,
     local_rank: int = 0,
     deepspeed_cfg_path: str = None,
+    wandb_entity_name: str = None,
+    wandb_project_name: str = None,
+    wandb_run_name: str = None,
+    wandb_log_grads: bool = False,
 ) -> CustomTrainer:
     """Intanstiates Trainer object.
 
@@ -234,6 +242,10 @@ def get_trainer(
         log_every (int): Logging interval.
         local_rank (int): Device id for distributed training.
         deepspeed_cfg_path (str, Optional): Optional path to deepspeed config.
+        wandb_entity_name (str, optional): Wandb entity. Defaults to None.
+        wandb_project_name (str, optional): Project name for wandb. Defaults to None.
+        wandb-run-name (str, optional): Run id name for wandb. Defaults to None.
+        wandb_log_grads (bool, optional): Whether to write grads on wandb logs. Defaults to False.
 
     Returns:
         CustomTrainer: Trainer object.
@@ -265,10 +277,16 @@ def get_trainer(
         save_strategy="steps",
         save_steps=log_every,
         evaluation_strategy="steps",
-        report_to="wandb",
+        # report_to="wandb",
     )
 
     encoder = get_encoder(exp_dict=exp_dict)
+
+    wandb.init(
+        name=wandb_run_name,
+        entity=wandb_entity_name,
+        project=wandb_project_name,
+    )
 
     trainer = CustomTrainer(
         model=encoder,
@@ -277,6 +295,9 @@ def get_trainer(
         eval_dataset=valid_dataset,
         compute_metrics=compute_metrics,
         data_collator=collate_fn,
+        callbacks=[
+            LoggingCallback(log_grads=wandb_log_grads),
+        ],
     )
 
     return trainer

@@ -1,8 +1,26 @@
 import argparse
 
 
+def parse_bool_flag(s: str) -> bool:
+    """Parse boolean arguments from the command line.
+
+    Args:
+        s (str): Input arg string.
+
+    Returns:
+        bool: _description_
+    """
+    _FALSY_STRINGS = {"off", "false", "0"}
+    _TRUTHY_STRINGS = {"on", "true", "1"}
+    if s.lower() in _FALSY_STRINGS:
+        return False
+    elif s.lower() in _TRUTHY_STRINGS:
+        return True
+    else:
+        raise argparse.ArgumentTypeError("Invalid value for a boolean flag")
+
+
 def parse_args():
-    # Specify arguments regarding save directory and job scheduler
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-e",
@@ -44,6 +62,22 @@ def parse_args():
         default=1000,
         type=int,
         help="Number of iterations to wait before logging training scores.",
+    )
+    parser.add_argument(
+        "--wandb-entity-name",
+        type=str,
+        default="bigcode",
+        help="Name of wandb entity for reporting.",
+    )
+    parser.add_argument(
+        "--wandb-project-name", type=str, default=None, help="Name of wandb project."
+    )
+    parser.add_argument("--wandb-run-name", type=str, default=None, help="Name of run.")
+    parser.add_argument(
+        "--wandb-log-gradients",
+        type=parse_bool_flag,
+        default="false",
+        help="Whether to write gradients to wandb logs.",
     )
     parser.add_argument(
         "--dist_url",

@@ -57,6 +57,10 @@ def train(exp_dict, savedir, args):
         valid_dataset=gfg_test_data,
         collate_fn=collate_fn,
         log_every=args.log_every,
+        wandb_entity_name=args.wandb_entity_name,
+        wandb_project_name=args.wandb_project_name,
+        wandb_run_name=args.wandb_run_name,
+        wandb_log_grads=args.wandb_log_gradients,
         local_rank=args.local_rank,
         deepspeed_cfg_path=args.deepspeed,
     )
