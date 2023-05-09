@@ -2,8 +2,6 @@
 torch==2.0.0+cu117
 numpy==1.24.2
 matplotlib==3.4.3
-scikit-learn==1.2.2
-pandas==1.5.3
 datasets==2.10.1
 sentencepiece==0.1.97
 transformers==4.27.2
@@ -11,5 +9,5 @@ beir==1.0.1
 mteb==1.0.1
 seaborn
 wandb
-huggingface-cli
-haven-ai
+huggingface_hub
+haven-ai git+https://github.com/haven-ai/haven-ai@f75c0b244d498980bfffc6c51f32c5fabe6aabbc
