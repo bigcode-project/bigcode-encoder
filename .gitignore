@@ -136,3 +136,4 @@ wandb/
 # hf
 cache-
 .lock
+.arrow
