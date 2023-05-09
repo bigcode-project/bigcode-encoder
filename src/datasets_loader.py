@@ -188,7 +188,6 @@ def get_dataset(
 
 
 def prepare_tokenizer(tokenizer_path):
-
     try:
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     except OSError:
@@ -318,7 +317,13 @@ class TrainCollator:
             labels = mlm_labels
             next_sentence_label = seq_relationship_labels
 
-        return input_ids, attention_mask, pooling_mask, labels, next_sentence_label
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pooling_mask": pooling_mask,
+            "labels": labels,
+            "next_sentence_label": next_sentence_label,
+        }
 
 
 class TestCollator:
@@ -372,7 +377,11 @@ class TestCollator:
         source_target_examples_ids = source_target_examples_encoding.input_ids
         source_target_examples_att_mask = source_target_examples_encoding.attention_mask
 
-        return source_target_examples_ids, source_target_examples_att_mask
+        return {
+            "source_target_ids": source_target_examples_ids,
+            "source_target_att_mask": source_target_examples_att_mask,
+            "return_loss": True,  # This is so Trainer.prediction_step() will call Trainer.compute_loss during eval()
+        }
 
 
 class Collator:
