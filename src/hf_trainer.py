@@ -64,14 +64,14 @@ class CustomTrainer(Trainer):
     def compute_loss(
         self,
         model: PreTrainedModel,
-        inputs: List[torch.Tensor],
+        inputs: Dict[str, torch.Tensor],
         return_outputs: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[float, torch.Tensor]]]:
         """Compute training loss. If return outputs is True, source/target embeddings are also returned.
 
         Args:
             model (PreTrainedModel): Training model
-            inputs (List[torch.Tensor]): Inputs dict.
+            inputs (Dict[str, torch.Tensor]): Inputs dict.
             return_outputs (bool, optional): Whether to return outputs for evaluation. Defaults to False.
 
         Returns:
@@ -86,16 +86,17 @@ class CustomTrainer(Trainer):
             temp_coef_fn = model.temperature_coef
 
         if return_outputs:  # This branch is called during evaluation.
-            source_target_ids, source_target_att_mask = inputs
-
             source_target_embedding = model(
-                input_ids=source_target_ids, attention_mask=source_target_att_mask
+                input_ids=inputs["source_target_ids"],
+                attention_mask=inputs["source_target_att_mask"],
             ).hidden_states[-1]
 
             source_target_embedding = projection_fn(source_target_embedding)
 
             normalized_source_target_embedding, embedding_norms = pool_and_normalize(
-                source_target_embedding, source_target_att_mask, return_norms=True
+                source_target_embedding,
+                inputs["source_target_att_mask"],
+                return_norms=True,
             )
 
             # Batches are such that the first and second halves are independently perturbed versions
@@ -128,19 +129,11 @@ class CustomTrainer(Trainer):
             }
 
         else:  # Training branch.
-            (
-                input_ids,
-                attention_mask,
-                pooling_mask,
-                labels,
-                next_sentence_label,
-            ) = inputs
-
             out = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                next_sentence_label=next_sentence_label,
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                labels=inputs["labels"],
+                next_sentence_label=inputs["next_sentence_label"],
             )
 
             if model.module.loss_alpha < 1.0:
@@ -148,7 +141,7 @@ class CustomTrainer(Trainer):
                 embedding = model.module.projection_head(embedding)
                 normalized_embedding = pool_and_normalize(
                     embedding,
-                    pooling_mask,
+                    inputs["pooling_mask"],
                 )
 
                 # Batches are such that the first and second halves are independently perturbed versions
@@ -170,7 +163,6 @@ class CustomTrainer(Trainer):
 
 
 def get_encoder(exp_dict: dict) -> PreTrainedModel:
-
     """get encoder given config exp_dict.
 
     Args:
@@ -277,16 +269,21 @@ def get_trainer(
         save_strategy="steps",
         save_steps=log_every,
         evaluation_strategy="steps",
-        # report_to="wandb",
     )
 
     encoder = get_encoder(exp_dict=exp_dict)
 
-    wandb.init(
-        name=wandb_run_name,
-        entity=wandb_entity_name,
-        project=wandb_project_name,
-    )
+    if wandb_entity_name is not None and wandb_project_name is not None:
+        wandb.init(
+            name=wandb_run_name,
+            entity=wandb_entity_name,
+            project=wandb_project_name,
+        )
+        logging_callbacks = [
+            LoggingCallback(log_grads=wandb_log_grads),
+        ]
+    else:
+        logging_callbacks = None
 
     trainer = CustomTrainer(
         model=encoder,
@@ -295,9 +292,7 @@ def get_trainer(
         eval_dataset=valid_dataset,
         compute_metrics=compute_metrics,
         data_collator=collate_fn,
-        callbacks=[
-            LoggingCallback(log_grads=wandb_log_grads),
-        ],
+        callbacks=logging_callbacks,
     )
 
     return trainer

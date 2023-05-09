@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument(
         "-d",
         "--data_path",
-        required=True,
+        default=None,
         help="Define the base directory where data will be cached.",
     )
     parser.add_argument(
@@ -66,7 +66,7 @@ def parse_args():
     parser.add_argument(
         "--wandb-entity-name",
         type=str,
-        default="bigcode",
+        default=None,
         help="Name of wandb entity for reporting.",
     )
     parser.add_argument(

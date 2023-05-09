@@ -27,7 +27,7 @@ def train(exp_dict, savedir, args):
     # Create data loaders and model
     train_data = datasets_loader.get_dataset(
         dataset_name=args.train_data_name,
-        path_to_cache=None,
+        path_to_cache=args.data_path,
         split="train",
         maximum_raw_length=exp_dict["maximum_raw_length"],
     )
