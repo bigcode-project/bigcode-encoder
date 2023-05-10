@@ -119,7 +119,7 @@ class CustomTrainer(Trainer):
             try:
                 temp_coef = temp_coef_fn.get_temp_coef()
             except AttributeError:
-                temp_coef = None
+                temp_coef = torch.Tensor([0.0]).to(contrastive_loss.device)
 
             return contrastive_loss, {
                 "source_embedding": normalized_source_embedding,
