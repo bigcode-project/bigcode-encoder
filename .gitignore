@@ -134,6 +134,6 @@ wandb-debug.log
 wandb/
 
 # hf
-cache-
-.lock
-.arrow
+*cache-*
+*.lock
+*.arrow
