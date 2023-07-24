@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 import torch
 from src.distributed_utils import all_gather
 
@@ -170,13 +170,14 @@ def pooling(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 
 def retrieval_eval(
-    x_source: torch.Tensor, x_target: torch.Tensor
+    x_source: torch.Tensor, x_target: torch.Tensor, return_similarities: Optional[bool] = False
 ) -> List[torch.Tensor]:
     """Performs retrieval evaluation given paired embeddings of source and target data.
 
     Args:
         x_source (torch.Tensor): Source batch of embeddings with shape [B, emb_dim].
         x_target (torch.Tensor): Target batch of embeddings with shape [B, emb_dim].
+        return_similarities (Optional[bool]): Whether to return similarity matrix. Defaults to False.
 
     Returns:
         List[torch.Tensor]: Various retrieval metrics: R@1, R@5, and MRR.
@@ -198,4 +199,7 @@ def retrieval_eval(
     ranks = results.nonzero()[:, 1].float() + 1.0
     mrr = (1 / ranks).mean()
 
-    return r_at_1, r_at_5, mrr
+    if return_similarities:
+        return r_at_1, r_at_5, mrr, similarities
+    else:
+        return r_at_1, r_at_5, mrr
